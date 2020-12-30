@@ -3,6 +3,10 @@ import enum
 import types
 import json
 import urllib
+try:
+    from inspect import getfullargspec
+except ImportError:
+    from inspect import getargspec as getfullargspec
 
 from functools import wraps
 from urllib.parse import quote, urlencode, urljoin, parse_qs
@@ -53,6 +57,53 @@ def user_required(method):
             self.user_id = resp['id']
         return method(self, *args, **kwargs)
     return _inner
+
+def ensure_ids(*tups):
+    """Helper to seamlessly convert between ids and uris ensuring
+    the parameter is in the required format.
+
+    Input parameters are one or more tuples of the format (ptype, pname),
+    where ptype is the type of id and pname is the name of the parameter
+    in the function signature. If type is "id" param will be converted to
+    a Spotify ID, otherwise to an appropriate URI, e.g. "track" converts
+    to "spotify:track:...", "artist" to "spotify:artist:..." and so on.
+
+    Example:
+    @ensure_ids(("id", "user_id"), ("artist", "artist_id"))
+    def(self, user_id, artist_id, **kwargs):
+        # artist_id is in the form of spotify:artist:<artist_id>
+        ...
+    """
+    def _wrapper(method):
+        spec = getfullargspec(method)
+        @wraps(method)
+        def _inner(self, *args, **kwargs):
+            # we add self to the arguments so we don't have to juggle indexes
+            # while avoiding the implicit one
+            args = [self] + list(args)
+            for (ptype, pname) in tups:
+                pidx = spec.args.index(pname)
+                try:
+                    val = args[pidx]
+                except IndexError:
+                    val = kwargs[pname]
+                if ptype == 'id':
+                    transformer = lambda x: x.split(':')[-1]
+                else:
+                    transformer = lambda x: 'spotify:%s:%s' % (
+                        ptype, x.split(':')[-1]
+                    )
+                if isinstance(val, list):
+                    val = list(map(transformer, val))
+                else:
+                    val = transformer(val)
+                try:
+                    args[pidx] = val
+                except IndexError:
+                    kwargs[pname] = val
+            return method(*args, **kwargs)
+        return _inner
+    return _wrapper
 
 class MethodRequest(Request):
     def __init__(self, method, *args, **kwargs):
@@ -167,7 +218,7 @@ class SpotifyAPI(object):
                 return urlopen(req.prepare())
             except urllib.error.HTTPError as e:
                 raise Exception("error issuing api request - %d - %s" % (
-                    e.status, e.read()
+                    e.status, json.loads(e.read())
                 )) from None
 
     def _api_req_json(self, req):
@@ -228,7 +279,7 @@ class SpotifyAPI(object):
     def oauth2_url(self, scopes=None):
         """Crafts a URL that you can use to request user access.
         After successful authorization Spotify will redirect to the
-        provided request URI with the one-time auth code. You can pass
+        provided redirect URI with the one-time auth code. You can pass
         that to `register_code` to update this client's tokens.
         """
         if scopes is None:
@@ -249,7 +300,7 @@ class SpotifyAPI(object):
             })
         )
 
-    def _resp_paginator(self, req, limit=None):
+    def _resp_paginator(self, req, oname=None, limit=None):
         """Generator that iterates over the items returned by a Spotify
         paging object and seamlessly requests the next batch until exhausted.
 
@@ -265,6 +316,8 @@ class SpotifyAPI(object):
         while next_url:
             req.url = next_url
             results = self._api_req_json(req)
+            if oname is not None:
+                results = results[oname]
             for item in results['items']:
                 yield item
             next_url = results.get('next')
@@ -286,6 +339,86 @@ class SpotifyAPI(object):
                     yield item
 
     ############################################################################
+
+    #### Albums
+    def album(self, album_id, **kwargs):
+        return self._api_req_json(
+            ApiRequest('GET', 'albums/%s' % album_id, params=kwargs)
+        )
+
+    def albums(self, album_ids, **kwargs):
+        req = ApiRequest('GET', 'albums', params=kwargs)
+        return self._req_paginator(req, album_ids, 'ids', 'albums', limit=20)
+
+    def album_tracks(self, album_id, **kwargs):
+        req = ApiRequest('GET', 'albums/%s/tracks' % album_id, params=kwargs)
+        return self._resp_paginator(req)
+
+    #### Artists
+    def artist(self, artist_id):
+        return self._api_req_json(ApiRequest('GET', 'artists/%s' % artist_id))
+
+    def artists(self, artist_ids):
+        req = ApiRequest('GET', 'artists')
+        return self._req_paginator(req, artist_ids, 'ids', 'artists', limit=50)
+
+    def artist_albums(self, artist_id, **kwargs):
+        _incl_grp = 'include_groups'
+        if _incl_grp in kwargs:
+            kwargs[_incl_grp] = ','.join(kwargs[_incl_grp])
+        req = ApiRequest('GET', 'artists/%s/albums' % artist_id, params=kwargs)
+        return self._resp_paginator(req)
+
+    def artist_top_tracks(self, artist_id, **kwargs):
+        _cntr = 'country'
+        kwargs[_cntr] = kwargs.get(_cntr, 'from_token')
+        req = ApiRequest('GET', 'artists/%s/top-tracks' % artist_id, params=kwargs)
+        return self._api_req_json(req)['tracks']
+
+    def artist_related_artists(self, artist_id):
+        req = ApiRequest('GET', 'artists/%s/related-artists' % artist_id)
+        for item in self._api_req_json(req)['artists']:
+            yield item
+
+    #### Browse
+    def category(self, category_id, **kwargs):
+        return self._api_req_json(ApiRequest(
+            'GET', 'browse/categories/%s' % category_id, params=kwargs
+        ))
+
+    def categories(self, **kwargs):
+        req = ApiRequest('GET', 'browse/categories', params=kwargs)
+        return self._resp_paginator(req, oname='categories')
+
+    def category_playlists(self, category_id, **kwargs):
+        req = ApiRequest(
+            'GET', 'browse/categories/%s/playlists' % category_id,
+            params=kwargs
+        )
+        return self._resp_paginator(req, oname='playlists')
+
+    def featured_playlists(self, **kwargs):
+        # TODO: timestamp
+        req = ApiRequest('GET', 'browse/featured-playlists', params=kwargs)
+        return self._resp_paginator(req, oname='playlists')
+
+    def new_releases(self, **kwargs):
+        req = ApiRequest('GET', 'browse/new-releases', params=kwargs)
+        return self._resp_paginator(req, oname='albums')
+
+    def recommendations(self):
+        pass
+
+    #### Episodes
+    #### Follow
+    #### Library
+    #### Personalization
+    #### Player
+    #### Playlists
+    #### Search
+    #### Shows
+    #### Tracks
+    #### Users Profile
 
     def playlist(self, playlist_id):
         req = ApiRequest('GET', 'playlists/%s' % playlist_id)
@@ -323,6 +456,7 @@ class SpotifyAPI(object):
         resp = self._api_req(req)
         return resp.status == 200
 
+    @ensure_ids(('id', 'playlist_id'), ('track', 'track_uris'))
     def playlist_tracks_add(self, playlist_id, track_uris, **kwargs):
         req = ApiRequest(
             'POST', 'playlists/%s/tracks' % playlist_id, json=kwargs
@@ -341,39 +475,3 @@ class SpotifyAPI(object):
     def tracks(self, track_ids, **kwargs):
         req = ApiRequest('GET', 'tracks', params=kwargs)
         return self._req_paginator(req, track_ids, 'ids', 'tracks', limit=50)
-
-    def artist(self, artist_id):
-        return self._api_req_json(ApiRequest('GET', 'artists/%s' % artist_id))
-
-    def artists(self, artist_ids):
-        req = ApiRequest('GET', 'artists')
-        return self._req_paginator(req, artist_ids, 'ids', 'artists', limit=50)
-
-    def artist_albums(self, artist_id, **kwargs):
-        _incl_grp = 'include_groups'
-        if _incl_grp in kwargs:
-            kwargs[_incl_grp] = ','.join(kwargs[_incl_grp])
-        req = ApiRequest('GET', 'artists/%s/albums' % artist_id, params=kwargs)
-        return self._resp_paginator(req)
-
-    def artist_top_tracks(self, artist_id, **kwargs):
-        _cntr = 'country'
-        kwargs[_cntr] = kwargs.get(_cntr, 'from_token')
-        req = ApiRequest('GET', 'artists/%s/top-tracks' % artist_id, params=kwargs)
-        return self._api_req_json(req)['tracks']
-
-    def artist_related_artists(self, artist_id):
-        req = ApiRequest('GET', 'artists/%s/related-artists' % artist_id)
-        for item in self._api_req_json(req)['artists']:
-            yield item
-
-    def album(self, album_id):
-        return self._api_req_json(ApiRequest('GET', 'albums/%s' % album_id))
-
-    def albums(self, album_ids, **kwargs):
-        req = ApiRequest('GET', 'albums', params=kwargs)
-        return self._req_paginator(req, album_ids, 'ids', 'albums', limit=20)
-
-    def album_tracks(self, album_id):
-        req = ApiRequest('GET', 'albums/%s/tracks' % album_id)
-        return self._resp_paginator(req)
