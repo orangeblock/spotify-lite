@@ -60,6 +60,12 @@ def user_required(method):
         return method(self, *args, **kwargs)
     return _inner
 
+def _expect_status(expected, resp):
+    if resp.status != expected:
+        raise Exception("invalid status code - %d (expected %d) - %s" % (
+            resp.status, expected, resp.read()
+        ))
+
 def ensure_ids(*tups):
     """Helper to seamlessly convert between ids and uris ensuring
     the parameter is in the required format.
@@ -494,16 +500,110 @@ class SpotifyAPI(object):
         return self._resp_paginator(req, 'artists', limit=50)
 
     #### Library
-    #### Personalization
-    #### Player
-    #### Playlists
-    #### Search
-    #### Shows
-    #### Tracks
-    #### Users Profile
+    def _is_type_saved(self, _type, type_ids):
+        req = ApiRequest('GET', 'me/%s/contains' % _type)
+        for resp in self._req_paginator(req, type_ids, "ids", limit=50):
+            results = json.loads(resp.read())
+            for res in results:
+                yield res
 
-    def playlist(self, playlist_id):
-        req = ApiRequest('GET', 'playlists/%s' % playlist_id)
+    def are_albums_saved(self, album_ids):
+        return self._is_type_saved('albums', album_ids)
+
+    def are_shows_saved(self, show_ids):
+        return self._is_type_saved('shows', show_ids)
+
+    def are_tracks_saved(self, track_ids):
+        return self._is_type_saved('tracks', track_ids)
+
+    def saved_albums(self, **kwargs):
+        req = ApiRequest('GET', 'me/albums', params=kwargs)
+        return self._resp_paginator(req)
+
+    def saved_shows(self):
+        req = ApiRequest('GET', 'me/shows')
+        return self._resp_paginator(req)
+
+    def saved_tracks(self, **kwargs):
+        req = ApiRequest('GET', 'me/tracks', params=kwargs)
+        return self._resp_paginator(req)
+
+    def saved_albums_remove(self, album_ids):
+        req = ApiRequest('DELETE', 'me/albums')
+        for resp in self._req_paginator(req, album_ids, 'ids', limit=50):
+            _expect_status(200, resp)
+        return True
+
+    def saved_shows_remove(self, show_ids):
+        req = ApiRequest('DELETE', 'me/shows')
+        for resp in self._req_paginator(req, show_ids, 'ids', limit=50):
+            _expect_status(200, resp)
+        return True
+
+    def saved_tracks_remove(self, track_ids, **kwargs):
+        req = ApiRequest('DELETE', 'me/tracks', params=kwargs)
+        for resp in self._req_paginator(req, track_ids, 'ids', limit=50):
+            _expect_status(200, resp)
+        return True
+
+    def saved_albums_add(self, album_ids):
+        req = ApiRequest('PUT', 'me/albums')
+        for resp in self._req_paginator(req, album_ids, 'ids', limit=50):
+            _expect_status(201, resp)
+        return True
+
+    def saved_shows_add(self, show_ids):
+        req = ApiRequest('PUT', 'me/shows')
+        for resp in self._req_paginator(req, show_ids, 'ids', limit=50):
+            _expect_status(200, resp)
+        return True
+
+    def saved_tracks_add(self, track_ids):
+        req = ApiRequest('PUT', 'me/tracks')
+        for resp in self._req_paginator(req, track_ids, 'ids', limit=50):
+            _expect_status(200, resp)
+        return True
+
+    #### Personalization
+    def _top_type(self, _type, **kwargs):
+        req = ApiRequest('GET', 'me/top/%s' % _type)
+        return self._resp_paginator(req)
+
+    def top_tracks(self, **kwargs):
+        return self._top_type('tracks', **kwargs)
+
+    def top_artists(self, **kwargs):
+        return self._top_type('artists', **kwargs)
+
+    #### Player
+
+    #### Playlists
+    def playlist_tracks_add(self, playlist_id, track_uris, **kwargs):
+        req = ApiRequest(
+            'POST', 'playlists/%s/tracks' % playlist_id, json=kwargs
+        )
+        responses = self._req_paginator(
+            req, track_uris, 'uris', limit=100, ptype=ParamType.JSON
+        )
+        for resp in responses:
+            _expect_status(201, resp)
+        return True
+
+    def playlist_edit(self, playlist_id, **kwargs):
+        req = ApiRequest(
+            'PUT', 'playlists/%s' % playlist_id, json=kwargs
+        )
+        resp = self._api_req(req)
+        return resp.status == 200
+
+    @kwargs_required('name')
+    @user_required
+    def playlists_add(self, user_id=None, **kwargs):
+        if user_id is None:
+            user_id = self.user_id
+        req = ApiRequest(
+            'POST', 'users/%s/playlists' % user_id, json=kwargs
+        )
         return self._api_req_json(req)
 
     @user_required
@@ -514,44 +614,31 @@ class SpotifyAPI(object):
         for item in self._resp_paginator(req):
             yield item
 
-    def playlist_tracks(self, playlist_id):
-        req = ApiRequest('GET', 'playlists/%s/tracks' % playlist_id)
-        for item in self._resp_paginator(req):
-            yield item['track']
+    def playlist_images(self, playlist_id):
+        req = ApiRequest('GET', 'playlists/%s/images' % playlist_id)
+        for item in self._api_req_json(req):
+            yield item
 
-    @kwargs_required('name')
-    @user_required
-    def playlist_add(self, user_id=None, **kwargs):
-        if user_id is None:
-            user_id = self.user_id
-        req = ApiRequest(
-            'POST', 'users/%s/playlists' % user_id,
-            json=kwargs
-        )
+    def playlist(self, playlist_id, **kwargs):
+        _flds = 'fields'
+        if _flds in kwargs:
+            kwargs[_flds] = ','.join(kwargs[_flds])
+        req = ApiRequest('GET', 'playlists/%s' % playlist_id, params=kwargs)
         return self._api_req_json(req)
 
-    def playlist_edit(self, playlist_id, **kwargs):
+    def playlist_tracks(self, playlist_id, **kwargs):
+        _flds = 'fields'
+        if _flds in kwargs:
+            kwargs[_flds] = ','.join(kwargs[_flds])
         req = ApiRequest(
-            'PUT', 'playlists/%s' % playlist_id,
-            json=kwargs
+            'GET', 'playlists/%s/tracks' % playlist_id, params=kwargs
         )
-        resp = self._api_req(req)
-        return resp.status == 200
+        return self._resp_paginator(req)
 
-    def playlist_tracks_add(self, playlist_id, track_uris, **kwargs):
-        req = ApiRequest(
-            'POST', 'playlists/%s/tracks' % playlist_id, json=kwargs
-        )
-        responses = self._req_paginator(
-            req, track_uris, 'uris', limit=100, ptype=ParamType.JSON
-        )
-        status_expected = 201
-        for resp in responses:
-            if resp.status != status_expected:
-                raise Exception("invalid status code - %d (expected %d) - %s" % (
-                    resp.status, status_expected, resp.read()
-                ))
-        return True
+    #### Search
+    #### Shows
+    #### Tracks
+    #### Users Profile
 
     def tracks(self, track_ids, **kwargs):
         req = ApiRequest('GET', 'tracks', params=kwargs)
