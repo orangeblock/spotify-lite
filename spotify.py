@@ -14,6 +14,8 @@ from urllib.request import urlopen
 from urllib.request import Request
 from base64 import b64encode
 
+# TODO: Allow early exit from generators by implementing custom class with top method
+
 VALID_SCOPES = [
     'ugc-image-upload', 'user-read-recently-played', 'user-top-read',
     'user-read-playback-position', 'user-read-playback-state',
@@ -410,7 +412,87 @@ class SpotifyAPI(object):
         pass
 
     #### Episodes
+    def episode(self, episode_id, **kwargs):
+        req = ApiRequest('GET', 'episodes/%s' % episode_id, params=kwargs)
+        return self._api_req_json(req)
+
+    def episodes(self, episode_ids, **kwargs):
+        req = ApiRequest('GET', 'episodes', params=kwargs)
+        return self._req_paginator(
+            req, episode_ids, 'ids', 'episodes', limit=50
+        )
+
     #### Follow
+    def _is_following_type(self, _type, type_ids):
+        req = ApiRequest(
+            'GET', 'me/following/contains', params={'type': _type}
+        )
+        for resp in self._req_paginator(req, type_ids, "ids", limit=50):
+            results = json.loads(resp.read())
+            for res in results:
+                yield res
+
+    def is_following_artists(self, artist_ids):
+        return self._is_following_type('artist', artist_ids)
+
+    def is_following_users(self, user_ids):
+        return self._is_following_type('user', user_ids)
+
+    def is_playlist_followed(self, playlist_id, user_ids):
+        req = ApiRequest('GET', 'playlists/%s/followers/contains' % playlist_id)
+        for resp in self._req_paginator(req, user_ids, 'ids', limit=5):
+            for res in json.loads(resp.read()):
+                yield res
+
+    def _follow_unfollow_type(self, method, _type, type_ids):
+        req = ApiRequest(method, 'me/following', params={'type': _type})
+        for resp in self._req_paginator(req, type_ids, "ids", limit=50):
+            status_expected = 204
+            if resp.status != status_expected:
+                raise Exception("invalid status code - %d (expected %d) - %s" % (
+                    resp.status, status_expected, resp.read()
+                ))
+        return True
+
+    def follow_artists(self, artist_ids):
+        return self._follow_unfollow_type('PUT', 'artist', artist_ids)
+
+    def follow_users(self, user_ids):
+        return self._follow_unfollow_type('PUT', 'user', user_ids)
+
+    def unfollow_artists(self, artist_ids):
+        return self._follow_unfollow_type('DELETE', 'artist', artist_ids)
+
+    def unfollow_users(self, user_ids):
+        return self._follow_unfollow_type('DELETE', 'user', user_ids)
+
+    def follow_playlist(self, playlist_id, **kwargs):
+        req = ApiRequest(
+            'PUT', 'playlists/%s/followers' % playlist_id,
+            json=kwargs
+        )
+        resp = self._api_req(req)
+        status_expected = 200
+        if resp.status != status_expected:
+            raise Exception("invalid status code - %d (expected %d) - %s" % (
+                resp.status, status_expected, resp.read()
+            ))
+        return True
+
+    def unfollow_playlist(self, playlist_id):
+        req = ApiRequest('DELETE', 'playlists/%s/followers' % playlist_id)
+        resp = self._api_req(req)
+        status_expected = 200
+        if resp.status != status_expected:
+            raise Exception("invalid status code - %d (expected %d) - %s" % (
+                resp.status, status_expected, resp.read()
+            ))
+        return True
+
+    def artists_followed(self):
+        req = ApiRequest('GET', 'me/following', params={'type': 'artist'})
+        return self._resp_paginator(req, 'artists', limit=50)
+
     #### Library
     #### Personalization
     #### Player
@@ -456,7 +538,6 @@ class SpotifyAPI(object):
         resp = self._api_req(req)
         return resp.status == 200
 
-    @ensure_ids(('id', 'playlist_id'), ('track', 'track_uris'))
     def playlist_tracks_add(self, playlist_id, track_uris, **kwargs):
         req = ApiRequest(
             'POST', 'playlists/%s/tracks' % playlist_id, json=kwargs
