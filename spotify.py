@@ -30,6 +30,7 @@ OAUTH2_URL = 'https://accounts.spotify.com/authorize/'
 TOKEN_URL = 'https://accounts.spotify.com/api/token/'
 API_BASE = 'https://api.spotify.com/v1/'
 
+# TODO: simplify - remove json type as it is only used once
 class ParamType(enum.Enum):
     QUERY = 1
     JSON = 2
@@ -50,6 +51,7 @@ def kwargs_required(*xs):
         return _inner
     return _wrapper
 
+# TODO: look for ways to deprecate this decorator
 def user_required(method):
     @wraps(method)
     def _inner(self, *args, **kwargs):
@@ -130,7 +132,7 @@ class BaseRequest(object):
     """
     def __init__(
         self, method, url, params=None, data=None,
-        json=None, headers=None, auth=None
+        json=None, headers=None, auth=None, _file=None
     ):
         self.method = method
         self.url = url
@@ -139,6 +141,10 @@ class BaseRequest(object):
         self.data = data or {}
         self.headers = headers or {}
         self.auth = auth
+        if _file is not None:
+            self.file_contents = _file.read()
+        else:
+            self.file_contents = None
 
     def prepare(self):
         """Construct necessary data and return an instance of urllib's
@@ -146,7 +152,10 @@ class BaseRequest(object):
         """
         _urllib_kwargs = {}
         _url_actual = self.url
-        if self.json:
+        if self.file_contents:
+            _urllib_kwargs['data'] = b64encode(self.file_contents)
+            self.headers['Content-Type'] = 'image/jpeg'
+        elif self.json:
             _urllib_kwargs['data'] = json.dumps(self.json).encode()
             self.headers['Content-Type'] = 'application/json'
         elif self.data:
@@ -421,8 +430,16 @@ class SpotifyAPI(object):
         req = ApiRequest('GET', 'browse/new-releases', params=kwargs)
         return self._resp_paginator(req, oname='albums')
 
-    def recommendations(self):
-        pass
+    def recommendations(self, **kwargs):
+        _seeds = ['seed_artists', 'seed_genres', 'seed_tracks']
+        if not any([x in kwargs for x in _seeds]):
+            raise Exception('seed value(s) missing')
+        for _seed in _seeds:
+            if _seed in kwargs:
+                # assume list
+                kwargs[_seed] = ','.join(kwargs[_seed])
+        req = ApiRequest('GET', 'recommendations', params=kwargs)
+        return self._api_req_json(req)
 
     #### Episodes
     def episode(self, episode_id, **kwargs):
@@ -480,22 +497,12 @@ class SpotifyAPI(object):
             'PUT', 'playlists/%s/followers' % playlist_id,
             json=kwargs
         )
-        resp = self._api_req(req)
-        status_expected = 200
-        if resp.status != status_expected:
-            raise Exception("invalid status code - %d (expected %d) - %s" % (
-                resp.status, status_expected, resp.read()
-            ))
+        _expect_status(200, self._api_req(req))
         return True
 
     def unfollow_playlist(self, playlist_id):
         req = ApiRequest('DELETE', 'playlists/%s/followers' % playlist_id)
-        resp = self._api_req(req)
-        status_expected = 200
-        if resp.status != status_expected:
-            raise Exception("invalid status code - %d (expected %d) - %s" % (
-                resp.status, status_expected, resp.read()
-            ))
+        _expect_status(200, self._api_req(req))
         return True
 
     def artists_followed(self):
@@ -683,8 +690,12 @@ class SpotifyAPI(object):
             _expect_status(201, resp)
         return True
 
-    def playlist_image_add(self, playlist_id, image):
-        pass
+    def playlist_image_add(self, playlist_id, image_file):
+        req = ApiRequest(
+            'PUT', 'playlists/%s/images' % playlist_id, _file=image_file
+        )
+        _expect_status(202, self._api_req(req))
+        return True
 
     #### Search
     def _search_type(self, _type, q, **kwargs):
