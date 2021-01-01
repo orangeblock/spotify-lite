@@ -323,11 +323,16 @@ class SpotifyAPI(object):
         next_url = req.url
         while next_url:
             req.url = next_url
-            results = self._api_req_json(req)
-            if oname is not None:
-                results = results[oname]
-            for item in results['items']:
-                yield item
+            try:
+                results = self._api_req_json(req)
+                if oname is not None:
+                    results = results[oname]
+                for item in results['items']:
+                    yield item
+            except urllib.error.HTTPError:
+                # TODO: there might be a better way to handle spotify
+                # pagination limits
+                return
             next_url = results.get('next')
 
     def _req_paginator(
@@ -380,7 +385,9 @@ class SpotifyAPI(object):
     def artist_top_tracks(self, artist_id, **kwargs):
         _cntr = 'country'
         kwargs[_cntr] = kwargs.get(_cntr, 'from_token')
-        req = ApiRequest('GET', 'artists/%s/top-tracks' % artist_id, params=kwargs)
+        req = ApiRequest(
+            'GET', 'artists/%s/top-tracks' % artist_id, params=kwargs
+        )
         return self._api_req_json(req)['tracks']
 
     def artist_related_artists(self, artist_id):
@@ -453,11 +460,7 @@ class SpotifyAPI(object):
     def _follow_unfollow_type(self, method, _type, type_ids):
         req = ApiRequest(method, 'me/following', params={'type': _type})
         for resp in self._req_paginator(req, type_ids, "ids", limit=50):
-            status_expected = 204
-            if resp.status != status_expected:
-                raise Exception("invalid status code - %d (expected %d) - %s" % (
-                    resp.status, status_expected, resp.read()
-                ))
+            _expect_status(204, resp)
         return True
 
     def follow_artists(self, artist_ids):
@@ -585,9 +588,11 @@ class SpotifyAPI(object):
         responses = self._req_paginator(
             req, track_uris, 'uris', limit=100, ptype=ParamType.JSON
         )
+        final_resp = {}
         for resp in responses:
             _expect_status(201, resp)
-        return True
+            final_resp = json.loads(resp.read())
+        return final_resp
 
     def playlist_edit(self, playlist_id, **kwargs):
         req = ApiRequest(
@@ -606,11 +611,11 @@ class SpotifyAPI(object):
         )
         return self._api_req_json(req)
 
-    @user_required
     def playlists(self, user_id=None):
         if user_id is None:
-            user_id = self.user_id
-        req = ApiRequest('GET', 'users/%s/playlists' % user_id)
+            req = ApiRequest('GET', 'me/playlists')
+        else:
+            req = ApiRequest('GET', 'users/%s/playlists' % user_id)
         for item in self._resp_paginator(req):
             yield item
 
@@ -635,11 +640,110 @@ class SpotifyAPI(object):
         )
         return self._resp_paginator(req)
 
+    def playlist_track_objs(self, playlist_id, **kwargs):
+        for item in self.playlist_tracks(playlist_id, **kwargs):
+            yield item['track']
+
+    def playlist_tracks_remove(self, playlist_id, track_params, **kwargs):
+        req = ApiRequest(
+            'DELETE', 'playlists/%s/tracks' % playlist_id, json=kwargs
+        )
+        if len(track_params) > 100 and \
+            any(map(
+                lambda x: not isinstance(x, str),
+                track_params[100:]
+            )):
+                raise Exception("cannot positionally delete after 100 items.")
+        last_resp = {}
+        for chunk in chunked(track_params, 100):
+            payload = []
+            for item in chunk:
+                # TODO: py2 uses basestring
+                if isinstance(item, str):
+                    payload.append({"uri": item})
+                else:
+                    payload.append({
+                        "uri": item[0],
+                        "positions": list(item[1])
+                    })
+            req.json['tracks'] = payload
+            last_resp = self._api_req_json(req)
+        return last_resp
+
+    @kwargs_required('range_start', 'insert_before')
+    def playlist_tracks_reorder(self, playlist_id, **kwargs):
+        req = ApiRequest(
+            'PUT', 'playlists/%s/tracks' % playlist_id, json=kwargs
+        )
+        return self._api_req_json(req)
+
+    def playlist_tracks_replace(self, playlist_id, track_uris):
+        req = ApiRequest('PUT', 'playlists/%s/tracks' % playlist_id)
+        for resp in self._req_paginator(req, track_uris, 'uris', limit=100):
+            _expect_status(201, resp)
+        return True
+
+    def playlist_image_add(self, playlist_id, image):
+        pass
+
     #### Search
+    def _search_type(self, _type, q, **kwargs):
+        kwargs['type'] = _type
+        kwargs['query'] = q
+        req = ApiRequest('GET', 'search', params=kwargs)
+        return self._resp_paginator(req, '%ss' % _type, limit=50)
+
+    def search_albums(self, q, **kwargs):
+        return self._search_type('album', q, **kwargs)
+    def search_artists(self, q, **kwargs):
+        return self._search_type('artist', q, **kwargs)
+    def search_playlists(self, q, **kwargs):
+        return self._search_type('playlist', q, **kwargs)
+    def search_tracks(self, q, **kwargs):
+        return self._search_type('track', q, **kwargs)
+    def search_shows(self, q, **kwargs):
+        return self._search_type('show', q, **kwargs)
+
     #### Shows
+    def show(self, show_id, **kwargs):
+        req = ApiRequest('GET', 'shows/%s' % show_id, params=kwargs)
+        return self._api_req_json(req)
+
+    def shows(self, show_ids, **kwargs):
+        req = ApiRequest('GET', 'shows', params=kwargs)
+        return self._req_paginator(req, show_ids, 'ids', 'shows', limit=50)
+
+    def show_episodes(self, show_id, **kwargs):
+        req = ApiRequest('GET', 'shows/%s/episodes' % show_id, params=kwargs)
+        return self._resp_paginator(req, limit=50)
+
     #### Tracks
-    #### Users Profile
+    def track_audio_analysis(self, track_id):
+        req = ApiRequest('GET', 'audio-analysis/%s' % track_id)
+        return self._api_req_json(req)
+
+    def track_audio_features(self, track_id):
+        req = ApiRequest('GET', 'audio-features/%s' % track_id)
+        return self._api_req_json(req)
+
+    def tracks_audio_features(self, track_ids):
+        req = ApiRequest('GET', 'audio-features')
+        return self._req_paginator(
+            req, track_ids, 'ids', 'audio_features', limit=100
+        )
 
     def tracks(self, track_ids, **kwargs):
         req = ApiRequest('GET', 'tracks', params=kwargs)
         return self._req_paginator(req, track_ids, 'ids', 'tracks', limit=50)
+
+    def track(self, track_id, **kwargs):
+        req = ApiRequest('GET', 'tracks/%s' % track_id, params=kwargs)
+        return self._api_req_json(req)
+
+    #### Users Profile
+    def profile(self, user_id=None):
+        if user_id is None:
+            req = ApiRequest('GET', 'me')
+        else:
+            req = ApiRequest('GET', 'users/%s' % user_id)
+        return self._api_req_json(req)
