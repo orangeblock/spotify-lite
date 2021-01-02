@@ -14,8 +14,6 @@ from urllib.request import urlopen
 from urllib.request import Request
 from base64 import b64encode
 
-# TODO: Allow early exit from generators by implementing custom class with top method
-
 VALID_SCOPES = [
     'ugc-image-upload', 'user-read-recently-played', 'user-top-read',
     'user-read-playback-position', 'user-read-playback-state',
@@ -29,11 +27,6 @@ VALID_SCOPES = [
 OAUTH2_URL = 'https://accounts.spotify.com/authorize/'
 TOKEN_URL = 'https://accounts.spotify.com/api/token/'
 API_BASE = 'https://api.spotify.com/v1/'
-
-# TODO: simplify - remove json type as it is only used once
-class ParamType(enum.Enum):
-    QUERY = 1
-    JSON = 2
 
 def chunked(xs, n):
     """Yields successive n-sized chunks from xs"""
@@ -51,69 +44,11 @@ def kwargs_required(*xs):
         return _inner
     return _wrapper
 
-# TODO: look for ways to deprecate this decorator
-def user_required(method):
-    @wraps(method)
-    def _inner(self, *args, **kwargs):
-        if self.user_id is None:
-            # update user_id for current user
-            resp = self._api_req_json(ApiRequest('GET', 'me'))
-            self.user_id = resp['id']
-        return method(self, *args, **kwargs)
-    return _inner
-
 def _expect_status(expected, resp):
     if resp.status != expected:
         raise Exception("invalid status code - %d (expected %d) - %s" % (
             resp.status, expected, resp.read()
         ))
-
-def ensure_ids(*tups):
-    """Helper to seamlessly convert between ids and uris ensuring
-    the parameter is in the required format.
-
-    Input parameters are one or more tuples of the format (ptype, pname),
-    where ptype is the type of id and pname is the name of the parameter
-    in the function signature. If type is "id" param will be converted to
-    a Spotify ID, otherwise to an appropriate URI, e.g. "track" converts
-    to "spotify:track:...", "artist" to "spotify:artist:..." and so on.
-
-    Example:
-    @ensure_ids(("id", "user_id"), ("artist", "artist_id"))
-    def(self, user_id, artist_id, **kwargs):
-        # artist_id is in the form of spotify:artist:<artist_id>
-        ...
-    """
-    def _wrapper(method):
-        spec = getfullargspec(method)
-        @wraps(method)
-        def _inner(self, *args, **kwargs):
-            # we add self to the arguments so we don't have to juggle indexes
-            # while avoiding the implicit one
-            args = [self] + list(args)
-            for (ptype, pname) in tups:
-                pidx = spec.args.index(pname)
-                try:
-                    val = args[pidx]
-                except IndexError:
-                    val = kwargs[pname]
-                if ptype == 'id':
-                    transformer = lambda x: x.split(':')[-1]
-                else:
-                    transformer = lambda x: 'spotify:%s:%s' % (
-                        ptype, x.split(':')[-1]
-                    )
-                if isinstance(val, list):
-                    val = list(map(transformer, val))
-                else:
-                    val = transformer(val)
-                try:
-                    args[pidx] = val
-                except IndexError:
-                    kwargs[pname] = val
-            return method(*args, **kwargs)
-        return _inner
-    return _wrapper
 
 class MethodRequest(Request):
     def __init__(self, method, *args, **kwargs):
@@ -141,10 +76,9 @@ class BaseRequest(object):
         self.data = data or {}
         self.headers = headers or {}
         self.auth = auth
+        self.file_contents = None
         if _file is not None:
             self.file_contents = _file.read()
-        else:
-            self.file_contents = None
 
     def prepare(self):
         """Construct necessary data and return an instance of urllib's
@@ -189,40 +123,48 @@ class ApiRequest(BaseRequest):
             url = urljoin(API_BASE, url)
         super(ApiRequest, self).__init__(method, url, *args, **kwargs)
 
-class SpotifyAPI(object):
-    def __init__(
-        self, client_id=None, client_secret=None,
-        access_token=None, refresh_token=None, redirect_uri=None
-    ):
-        self.client_id = client_id
-        self.client_secret = client_secret
+class SpotifyUser(object):
+    def __init__(self, access_token=None, refresh_token=None):
         self.access_token = access_token
         self.refresh_token = refresh_token
+
+class SpotifyAPI(object):
+    def __init__(self, client_id=None, client_secret=None, redirect_uri=None):
+        self.client_id = client_id
+        self.client_secret = client_secret
         self.redirect_uri = redirect_uri
-        self.user_id = None
+        self.auth_user = None
 
     def _refresh_access_token(self):
-        if self.refresh_token is None:
-            raise Exception("missing refresh token")
+        if self.auth_user is None:
+            raise Exception('no user registered')
+        if self.auth_user.refresh_token is None:
+            raise Exception('missing refresh token')
         try:
             resp = urlopen(BaseRequest(
                 'POST', TOKEN_URL,
                 data={
                     "grant_type": "refresh_token",
-                    "refresh_token": self.refresh_token
+                    "refresh_token": self.auth_user.refresh_token
                 },
                 auth=(self.client_id, self.client_secret)
             ).prepare())
             payload = json.loads(resp.read())
-            self.access_token = payload['access_token']
-            self.refresh_token = payload.get('refresh_token', self.refresh_token)
+            self.auth_user.access_token = payload['access_token']
+            self.auth_user.refresh_token = payload.get(
+                'refresh_token', self.auth_user.refresh_token
+            )
         except urllib.error.HTTPError as e:
             raise Exception("error refreshing user token - %d - %s" % (
                 e.status, e.read()
             )) from None
 
     def _api_req(self, req):
-        req.headers['Authorization'] = 'Bearer %s' % self.access_token
+        if self.auth_user is None:
+            raise Exception('no user registered')
+        req.headers['Authorization'] = 'Bearer %s' % (
+            self.auth_user.access_token
+        )
         try:
             return urlopen(req.prepare())
         except urllib.error.HTTPError as e:
@@ -230,7 +172,9 @@ class SpotifyAPI(object):
                 raise
             # refresh token and retry once
             self._refresh_access_token()
-            req.headers['Authorization'] = 'Bearer %s' % self.access_token
+            req.headers['Authorization'] = 'Bearer %s' % (
+                self.auth_user.access_token
+            )
             try:
                 return urlopen(req.prepare())
             except urllib.error.HTTPError as e:
@@ -263,7 +207,12 @@ class SpotifyAPI(object):
     def delete(self, url, **kwargs):
         return self.req('DELETE', url, **kwargs)
 
-    def register_code(self, code):
+    def set_user(self, user):
+        if not isinstance(user, SpotifyUser):
+            raise Exception('invalid user instance')
+        self.auth_user = user
+
+    def set_user_from_code(self, code):
         """Call this after obtaining an authorization code
         to generate access/refresh tokens for user access.
         """
@@ -282,12 +231,11 @@ class SpotifyAPI(object):
                 auth=(self.client_id, self.client_secret)
             ).prepare())
             payload = json.loads(resp.read())
-            self.access_token = payload['access_token']
-            self.refresh_token = payload['refresh_token']
-            # this method can be used to change the active user of this client
-            # instance so we need to clear the user_id, allowing it to be
-            # re-set when needed again.
-            self.user_id = None
+            self.auth_user = SpotifyUser(
+                payload['access_token'],
+                payload['refresh_token']
+            )
+            return self.auth_user
         except urllib.error.HTTPError as e:
             raise Exception("error generating user access token - %d - %s" % (
                 e.status, e.read()
@@ -322,10 +270,8 @@ class SpotifyAPI(object):
         paging object and seamlessly requests the next batch until exhausted.
 
         Optionally pass a limit parameter to set the number of returned results
-        per batch although make sure it does not exceed Spotify's limitations
-        or the request will fail.
-
-        https://developer.spotify.com/documentation/web-api/reference/object-model/#paging-object
+        per batch, making sure it does not exceed Spotify's limitations or the
+        request will fail.
         """
         if limit is not None:
             req.params['limit'] = limit
@@ -339,20 +285,21 @@ class SpotifyAPI(object):
                 for item in results['items']:
                     yield item
             except urllib.error.HTTPError:
-                # TODO: there might be a better way to handle spotify
-                # pagination limits
                 return
             next_url = results.get('next')
 
-    def _req_paginator(
-        self, req, xs, iname, oname=None, limit=50, ptype=ParamType.QUERY
-    ):
-        """"""
+    def _req_paginator(self, req, xs, iname, oname=None, limit=50):
+        """Sends input parameters in chunks. Only works for query parameters.
+
+        `req`: The request object on which to apply parameter chunking.
+        `xs`: The input list.
+        `iname`: The query param name to use.
+        `oname`: Optinally the output param name under which the response
+            list is located. If omitted the return type is the raw response.
+        `limit`: The number of items per chunk.
+        """
         for chunk in chunked(xs, limit):
-            if ptype == ParamType.QUERY:
-                req.params[iname] = ','.join(chunk)
-            elif ptype == ParamType.JSON:
-                req.json[iname] = chunk
+            req.params[iname] = ','.join(chunk)
             if oname is None:
                 yield self._api_req(req)
             else:
@@ -362,7 +309,7 @@ class SpotifyAPI(object):
 
     ############################################################################
 
-    #### Albums
+    ################################## Albums ##################################
     def album(self, album_id, **kwargs):
         return self._api_req_json(
             ApiRequest('GET', 'albums/%s' % album_id, params=kwargs)
@@ -404,7 +351,7 @@ class SpotifyAPI(object):
         for item in self._api_req_json(req)['artists']:
             yield item
 
-    #### Browse
+    ################################# Browse ###################################
     def category(self, category_id, **kwargs):
         return self._api_req_json(ApiRequest(
             'GET', 'browse/categories/%s' % category_id, params=kwargs
@@ -441,7 +388,7 @@ class SpotifyAPI(object):
         req = ApiRequest('GET', 'recommendations', params=kwargs)
         return self._api_req_json(req)
 
-    #### Episodes
+    ############################## Episodes ####################################
     def episode(self, episode_id, **kwargs):
         req = ApiRequest('GET', 'episodes/%s' % episode_id, params=kwargs)
         return self._api_req_json(req)
@@ -452,7 +399,7 @@ class SpotifyAPI(object):
             req, episode_ids, 'ids', 'episodes', limit=50
         )
 
-    #### Follow
+    ################################ Follow ####################################
     def _is_following_type(self, _type, type_ids):
         req = ApiRequest(
             'GET', 'me/following/contains', params={'type': _type}
@@ -509,7 +456,7 @@ class SpotifyAPI(object):
         req = ApiRequest('GET', 'me/following', params={'type': 'artist'})
         return self._resp_paginator(req, 'artists', limit=50)
 
-    #### Library
+    ############################# Library ######################################
     def _is_type_saved(self, _type, type_ids):
         req = ApiRequest('GET', 'me/%s/contains' % _type)
         for resp in self._req_paginator(req, type_ids, "ids", limit=50):
@@ -574,7 +521,7 @@ class SpotifyAPI(object):
             _expect_status(200, resp)
         return True
 
-    #### Personalization
+    ############################ Personalization ###############################
     def _top_type(self, _type, **kwargs):
         req = ApiRequest('GET', 'me/top/%s' % _type)
         return self._resp_paginator(req)
@@ -585,21 +532,16 @@ class SpotifyAPI(object):
     def top_artists(self, **kwargs):
         return self._top_type('artists', **kwargs)
 
-    #### Player
-
-    #### Playlists
+    ############################# Playlists ####################################
     def playlist_tracks_add(self, playlist_id, track_uris, **kwargs):
         req = ApiRequest(
             'POST', 'playlists/%s/tracks' % playlist_id, json=kwargs
         )
-        responses = self._req_paginator(
-            req, track_uris, 'uris', limit=100, ptype=ParamType.JSON
-        )
-        final_resp = {}
-        for resp in responses:
-            _expect_status(201, resp)
-            final_resp = json.loads(resp.read())
-        return final_resp
+        for chunk in chunked(track_uris, 100):
+            req.json['uris'] = chunk
+            final_resp = self._api_req(req)
+            _expect_status(201, final_resp)
+        return json.loads(final_resp.read())
 
     def playlist_edit(self, playlist_id, **kwargs):
         req = ApiRequest(
@@ -609,22 +551,19 @@ class SpotifyAPI(object):
         return resp.status == 200
 
     @kwargs_required('name')
-    @user_required
     def playlists_add(self, user_id=None, **kwargs):
         if user_id is None:
-            user_id = self.user_id
-        req = ApiRequest(
-            'POST', 'users/%s/playlists' % user_id, json=kwargs
-        )
-        return self._api_req_json(req)
+            _url = 'me/playlists'
+        else:
+            _url = 'users/%s/playlists' % user_id
+        return self._api_req_json(ApiRequest('POST', _url, json=kwargs))
 
     def playlists(self, user_id=None):
         if user_id is None:
             req = ApiRequest('GET', 'me/playlists')
         else:
             req = ApiRequest('GET', 'users/%s/playlists' % user_id)
-        for item in self._resp_paginator(req):
-            yield item
+        return self._resp_paginator(req, limit=50)
 
     def playlist_images(self, playlist_id):
         req = ApiRequest('GET', 'playlists/%s/images' % playlist_id)
@@ -645,7 +584,7 @@ class SpotifyAPI(object):
         req = ApiRequest(
             'GET', 'playlists/%s/tracks' % playlist_id, params=kwargs
         )
-        return self._resp_paginator(req)
+        return self._resp_paginator(req, limit=100)
 
     def playlist_track_objs(self, playlist_id, **kwargs):
         for item in self.playlist_tracks(playlist_id, **kwargs):
@@ -697,7 +636,7 @@ class SpotifyAPI(object):
         _expect_status(202, self._api_req(req))
         return True
 
-    #### Search
+    ############################# Search #######################################
     def _search_type(self, _type, q, **kwargs):
         kwargs['type'] = _type
         kwargs['query'] = q
@@ -715,7 +654,7 @@ class SpotifyAPI(object):
     def search_shows(self, q, **kwargs):
         return self._search_type('show', q, **kwargs)
 
-    #### Shows
+    ############################# Shows ########################################
     def show(self, show_id, **kwargs):
         req = ApiRequest('GET', 'shows/%s' % show_id, params=kwargs)
         return self._api_req_json(req)
@@ -728,7 +667,7 @@ class SpotifyAPI(object):
         req = ApiRequest('GET', 'shows/%s/episodes' % show_id, params=kwargs)
         return self._resp_paginator(req, limit=50)
 
-    #### Tracks
+    ############################## Tracks ######################################
     def track_audio_analysis(self, track_id):
         req = ApiRequest('GET', 'audio-analysis/%s' % track_id)
         return self._api_req_json(req)
@@ -751,7 +690,7 @@ class SpotifyAPI(object):
         req = ApiRequest('GET', 'tracks/%s' % track_id, params=kwargs)
         return self._api_req_json(req)
 
-    #### Users Profile
+    ############################ User Profile ##################################
     def profile(self, user_id=None):
         if user_id is None:
             req = ApiRequest('GET', 'me')
