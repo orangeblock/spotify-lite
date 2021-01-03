@@ -6,5 +6,5 @@ A lightweight, single-file, zero-dependency Spotify wrapper that can be dropped 
 Features required until it can fulfill outlined requirements:
 - ~~Implement all API endpoints~~
 - ~~Remove `requests` dependency~~
-- Ensure compatibility with Python 2.7+
+- ~~Ensure compatibility with Python 2.7+~~
 - Documentation

@@ -1,18 +1,18 @@
 import sys
-import enum
-import types
 import json
-import urllib
-try:
-    from inspect import getfullargspec
-except ImportError:
-    from inspect import getargspec as getfullargspec
-
 from functools import wraps
-from urllib.parse import quote, urlencode, urljoin, parse_qs
-from urllib.request import urlopen
-from urllib.request import Request
 from base64 import b64encode
+try:
+    # Python 3
+    from urllib.parse import quote, urlencode, urljoin, parse_qs
+    from urllib.request import urlopen, Request
+    from urllib.error import HTTPError
+    basestring = str
+except ImportError:
+    # Python 2
+    from urlparse import urljoin, parse_qs
+    from urllib import urlencode, quote
+    from urllib2 import urlopen, Request, HTTPError
 
 VALID_SCOPES = [
     'ugc-image-upload', 'user-read-recently-played', 'user-top-read',
@@ -45,12 +45,17 @@ def kwargs_required(*xs):
     return _wrapper
 
 def _expect_status(expected, resp):
-    if resp.status != expected:
+    if resp.code != expected:
         raise Exception("invalid status code - %d (expected %d) - %s" % (
-            resp.status, expected, resp.read()
+            resp.code, expected, resp.read()
         ))
 
-class MethodRequest(Request):
+class SpotifyException(Exception):
+    def __init__(self, *args, **kwargs):
+        super(SpotifyException, self).__init__(*args, **kwargs)
+        self.__suppress_context__ = True
+
+class MethodRequest(Request, object):
     def __init__(self, method, *args, **kwargs):
         self._method = method
         super(MethodRequest, self).__init__(*args, **kwargs)
@@ -154,10 +159,10 @@ class SpotifyAPI(object):
             self.auth_user.refresh_token = payload.get(
                 'refresh_token', self.auth_user.refresh_token
             )
-        except urllib.error.HTTPError as e:
-            raise Exception("error refreshing user token - %d - %s" % (
-                e.status, e.read()
-            )) from None
+        except HTTPError as e:
+            raise SpotifyException("error refreshing user token - %d - %s" % (
+                e.code, e.read()
+            ))
 
     def _api_req(self, req):
         if self.auth_user is None:
@@ -167,8 +172,8 @@ class SpotifyAPI(object):
         )
         try:
             return urlopen(req.prepare())
-        except urllib.error.HTTPError as e:
-            if e.status != 401:
+        except HTTPError as e:
+            if e.code != 401:
                 raise
             # refresh token and retry once
             self._refresh_access_token()
@@ -177,10 +182,10 @@ class SpotifyAPI(object):
             )
             try:
                 return urlopen(req.prepare())
-            except urllib.error.HTTPError as e:
-                raise Exception("error issuing api request - %d - %s" % (
-                    e.status, json.loads(e.read())
-                )) from None
+            except HTTPError as e:
+                raise SpotifyException("error issuing api request - %d - %s" % (
+                    e.code, json.loads(e.read())
+                ))
 
     def _api_req_json(self, req):
         resp = self._api_req(req)
@@ -236,10 +241,12 @@ class SpotifyAPI(object):
                 payload['refresh_token']
             )
             return self.auth_user
-        except urllib.error.HTTPError as e:
-            raise Exception("error generating user access token - %d - %s" % (
-                e.status, e.read()
-            )) from None
+        except HTTPError as e:
+            raise SpotifyException(
+                "error generating user access token - %d - %s" % (
+                    e.code, e.read()
+                )
+            )
 
     def oauth2_url(self, scopes=None):
         """Crafts a URL that you can use to request user access.
@@ -284,7 +291,7 @@ class SpotifyAPI(object):
                     results = results[oname]
                 for item in results['items']:
                     yield item
-            except urllib.error.HTTPError:
+            except HTTPError:
                 return
             next_url = results.get('next')
 
@@ -369,7 +376,7 @@ class SpotifyAPI(object):
         return self._resp_paginator(req, oname='playlists')
 
     def featured_playlists(self, **kwargs):
-        # TODO: timestamp
+        # TODO: parse timestamp from py object
         req = ApiRequest('GET', 'browse/featured-playlists', params=kwargs)
         return self._resp_paginator(req, oname='playlists')
 
@@ -548,7 +555,7 @@ class SpotifyAPI(object):
             'PUT', 'playlists/%s' % playlist_id, json=kwargs
         )
         resp = self._api_req(req)
-        return resp.status == 200
+        return resp.code == 200
 
     @kwargs_required('name')
     def playlists_add(self, user_id=None, **kwargs):
@@ -604,8 +611,7 @@ class SpotifyAPI(object):
         for chunk in chunked(track_params, 100):
             payload = []
             for item in chunk:
-                # TODO: py2 uses basestring
-                if isinstance(item, str):
+                if isinstance(item, basestring):
                     payload.append({"uri": item})
                 else:
                     payload.append({
