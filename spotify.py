@@ -124,8 +124,8 @@ class ApiRequest(BaseRequest):
     def __init__(self, method, url, *args, **kwargs):
         # url could contain only the resource part so we append the base
         if API_BASE not in url:
-            # careful, if lefthand does not contain a trailing slash it will
-            # pick up the last part as a resource and replace it with righthand.
+            # note, if lefthand does not contain a trailing slash it will pick
+            # up the last part as a resource and replace it with righthand!!
             url = urljoin(API_BASE, url)
         super(ApiRequest, self).__init__(method, url, *args, **kwargs)
 
@@ -139,9 +139,12 @@ class SpotifyAPI(object):
         self, client_id=None, client_secret=None, redirect_uri=None,
         user=None
     ):
-        self.client_id = client_id or os.getenv("SPOTIFY_CLIENT_ID")
-        self.client_secret = client_secret or os.getenv("SPOTIFY_CLIENT_SECRET")
-        self.redirect_uri = redirect_uri or os.getenv("SPOTIFY_REDIRECT_URI")
+        self.client_id = client_id \
+            or os.getenv("SPOTIFY_CLIENT_ID")
+        self.client_secret = client_secret \
+            or os.getenv("SPOTIFY_CLIENT_SECRET")
+        self.redirect_uri = redirect_uri \
+            or os.getenv("SPOTIFY_REDIRECT_URI")
         self.auth_user = None
         if user is not None:
             self.set_user(user)
@@ -189,9 +192,11 @@ class SpotifyAPI(object):
             try:
                 return urlopen(req.prepare())
             except HTTPError as e:
-                raise SpotifyException("error issuing api request - %d - %s" % (
-                    e.code, json.loads(e.read())
-                ))
+                raise SpotifyException(
+                    "error issuing api request - %d - %s" % (
+                        e.code, json.loads(e.read())
+                    )
+                )
 
     def _api_req_json(self, req):
         resp = self._api_req(req)
@@ -202,7 +207,9 @@ class SpotifyAPI(object):
     # and handle the request construction and retry logic. Response is
     # whatever is returned by urlopen. All additional logic like pagination
     # and parameter formatting will have to be handled manually.
-    def req(self, method, url, params=None, data=None, json=None, headers=None):
+    def req(
+        self, method, url, params=None, data=None, json=None, headers=None
+    ):
         return self._api_req(
             ApiRequest(
                 method, url, params=params, data=data, json=json,
@@ -320,9 +327,9 @@ class SpotifyAPI(object):
                 for item in resp[oname]:
                     yield item
 
-    ############################################################################
+    ###########################################################################
 
-    ################################## Albums ##################################
+    ################################## Albums #################################
     def album(self, album_id, **kwargs):
         return self._api_req_json(
             ApiRequest('GET', 'albums/%s' % album_id, params=kwargs)
@@ -364,7 +371,7 @@ class SpotifyAPI(object):
         for item in self._api_req_json(req)['artists']:
             yield item
 
-    ################################# Browse ###################################
+    ################################# Browse ##################################
     def category(self, category_id, **kwargs):
         return self._api_req_json(ApiRequest(
             'GET', 'browse/categories/%s' % category_id, params=kwargs
@@ -401,7 +408,7 @@ class SpotifyAPI(object):
         req = ApiRequest('GET', 'recommendations', params=kwargs)
         return self._api_req_json(req)
 
-    ############################## Episodes ####################################
+    ############################## Episodes ###################################
     def episode(self, episode_id, **kwargs):
         req = ApiRequest('GET', 'episodes/%s' % episode_id, params=kwargs)
         return self._api_req_json(req)
@@ -412,7 +419,7 @@ class SpotifyAPI(object):
             req, episode_ids, 'ids', 'episodes', limit=50
         )
 
-    ################################ Follow ####################################
+    ################################ Follow ###################################
     def _is_following_type(self, _type, type_ids):
         req = ApiRequest(
             'GET', 'me/following/contains', params={'type': _type}
@@ -429,7 +436,9 @@ class SpotifyAPI(object):
         return self._is_following_type('user', user_ids)
 
     def is_playlist_followed(self, playlist_id, user_ids):
-        req = ApiRequest('GET', 'playlists/%s/followers/contains' % playlist_id)
+        req = ApiRequest(
+            'GET', 'playlists/%s/followers/contains' % playlist_id
+        )
         for resp in self._req_paginator(req, user_ids, 'ids', limit=5):
             for res in json.loads(resp.read()):
                 yield res
@@ -469,7 +478,7 @@ class SpotifyAPI(object):
         req = ApiRequest('GET', 'me/following', params={'type': 'artist'})
         return self._resp_paginator(req, 'artists', limit=50)
 
-    ############################# Library ######################################
+    ############################# Library #####################################
     def _is_type_saved(self, _type, type_ids):
         req = ApiRequest('GET', 'me/%s/contains' % _type)
         for resp in self._req_paginator(req, type_ids, "ids", limit=50):
@@ -534,7 +543,7 @@ class SpotifyAPI(object):
             _expect_status(200, resp)
         return True
 
-    ############################ Personalization ###############################
+    ############################ Personalization ##############################
     def _top_type(self, _type, **kwargs):
         req = ApiRequest('GET', 'me/top/%s' % _type)
         return self._resp_paginator(req)
@@ -545,7 +554,7 @@ class SpotifyAPI(object):
     def top_artists(self, **kwargs):
         return self._top_type('artists', **kwargs)
 
-    ############################# Playlists ####################################
+    ############################# Playlists ###################################
     def playlist_tracks_add(self, playlist_id, track_uris, **kwargs):
         req = ApiRequest(
             'POST', 'playlists/%s/tracks' % playlist_id, json=kwargs
@@ -648,7 +657,7 @@ class SpotifyAPI(object):
         _expect_status(202, self._api_req(req))
         return True
 
-    ############################# Search #######################################
+    ############################# Search ######################################
     def _search_type(self, _type, q, **kwargs):
         kwargs['type'] = _type
         kwargs['query'] = q
@@ -666,7 +675,7 @@ class SpotifyAPI(object):
     def search_shows(self, q, **kwargs):
         return self._search_type('show', q, **kwargs)
 
-    ############################# Shows ########################################
+    ############################# Shows #######################################
     def show(self, show_id, **kwargs):
         req = ApiRequest('GET', 'shows/%s' % show_id, params=kwargs)
         return self._api_req_json(req)
@@ -679,7 +688,7 @@ class SpotifyAPI(object):
         req = ApiRequest('GET', 'shows/%s/episodes' % show_id, params=kwargs)
         return self._resp_paginator(req, limit=50)
 
-    ############################## Tracks ######################################
+    ############################## Tracks #####################################
     def track_audio_analysis(self, track_id):
         req = ApiRequest('GET', 'audio-analysis/%s' % track_id)
         return self._api_req_json(req)
@@ -702,7 +711,7 @@ class SpotifyAPI(object):
         req = ApiRequest('GET', 'tracks/%s' % track_id, params=kwargs)
         return self._api_req_json(req)
 
-    ############################ User Profile ##################################
+    ############################ User Profile #################################
     def profile(self, user_id=None):
         if user_id is None:
             req = ApiRequest('GET', 'me')
