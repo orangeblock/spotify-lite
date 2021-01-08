@@ -1,3 +1,4 @@
+import os
 import sys
 import json
 from functools import wraps
@@ -134,11 +135,16 @@ class SpotifyUser(object):
         self.refresh_token = refresh_token
 
 class SpotifyAPI(object):
-    def __init__(self, client_id=None, client_secret=None, redirect_uri=None):
-        self.client_id = client_id
-        self.client_secret = client_secret
-        self.redirect_uri = redirect_uri
+    def __init__(
+        self, client_id=None, client_secret=None, redirect_uri=None,
+        user=None
+    ):
+        self.client_id = client_id or os.getenv("SPOTIFY_CLIENT_ID")
+        self.client_secret = client_secret or os.getenv("SPOTIFY_CLIENT_SECRET")
+        self.redirect_uri = redirect_uri or os.getenv("SPOTIFY_REDIRECT_URI")
         self.auth_user = None
+        if user is not None:
+            self.set_user(user)
 
     def _refresh_access_token(self):
         if self.auth_user is None:
