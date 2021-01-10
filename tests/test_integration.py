@@ -29,7 +29,12 @@ class ApiTest(unittest.TestCase):
         # Cunninlynguists
         "7EA0bLf8dXCIUkwC3lnaJa",
         # Deepchord presents: Echospace
-        "6mw8tTkjJtQs6kT1V8G5fI"
+        "6mw8tTkjJtQs6kT1V8G5fI",
+        # Eminem
+        "7dGJo4pcD2V6oG8kP0tJRR"
+    ]
+    categories = [
+        'party'
     ]
 
     @classmethod
@@ -72,23 +77,75 @@ class ApiTest(unittest.TestCase):
         self.assertEqual(len(ids), len(self.artists))
         self.assertSetEqual(set(ids), set(self.artists))
 
-    def test_artist_albums(self):
-        pass
+    def _test_artist_albums(self):
+        # should contain all release types
+        xs = self.api.artist_albums(self.artists[1])
+        self.assertIsInstance(xs, types.GeneratorType)
+        releases = list(xs)
+        _all_types = set(['album', 'single', 'compilation'])
+        _all_groups = set(['album', 'single', 'appears_on'])
+        release_types = list(map(lambda x: x['album_type'], releases))
+        release_groups = list(map(lambda x: x['album_group'], releases))
+        self.assertSetEqual(_all_types, set(release_types))
+        self.assertSetEqual(_all_groups, set(release_groups))
+        # should only contain singles
+        xs = self.api.artist_albums(
+            self.artists[1], include_groups=['single']
+        )
+        releases = list(xs)
+        release_types = list(map(lambda x: x['album_type'], releases))
+        release_groups = list(map(lambda x: x['album_group'], releases))
+        self.assertEqual(['single'], list(set(release_types)))
+        self.assertEqual(['single'], list(set(release_groups)))
+        # should contain singles and albums
+        xs = self.api.artist_albums(
+            self.artists[1], include_groups=['single', 'album']
+        )
+        releases = list(xs)
+        release_types = list(map(lambda x: x['album_type'], releases))
+        release_groups = list(map(lambda x: x['album_group'], releases))
+        self.assertSetEqual(set(['single', 'album']), set(release_types))
+        self.assertSetEqual(set(['single', 'album']), set(release_groups))
 
-    def test_artist_top_tracks(self):
-        pass
+    def _test_artist_top_tracks(self):
+        xs = self.api.artist_top_tracks(self.artists[0])
+        self.assertIsInstance(xs, types.GeneratorType)
+        # ensure all tracks have og artist in artist list
+        artist_lists = list(map(lambda x: x['artists'], list(xs)))
+        self.assertGreater(len(artist_lists), 0)
+        for l in artist_lists:
+            self.assertIn(
+                self.artists[0], list(map(lambda x: x['id'], l))
+            )
 
-    def test_artist_related_artists(self):
-        pass
+    def _test_artist_related_artists(self):
+        xs = self.api.artist_related_artists(self.artists[0])
+        self.assertIsInstance(xs, types.GeneratorType)
+        obj_types = list(map(lambda x: x['type'], list(xs)))
+        self.assertGreater(len(obj_types), 0)
+        self.assertListEqual(['artist'], list(set(obj_types)))
 
-    def test_category(self):
-        pass
+    def _test_category(self):
+        x = self.api.category(self.categories[0])
+        self.assertEqual(x['id'], self.categories[0])
 
-    def test_categories(self):
-        pass
+    def _test_categories(self):
+        xs = self.api.categories()
+        self.assertIsInstance(xs, types.GeneratorType)
+        # no way to tell if objects are categories without fetching
+        # everything and checking for the hardcoded one so instead
+        # we just check we at least pull something.
+        cats = [next(xs) for _ in range(10)]
+        self.assertEqual(10, len(cats))
 
-    def test_category_playlists(self):
-        pass
+    def _test_category_playlists(self):
+        xs = self.api.category_playlists(self.categories[0])
+        self.assertIsInstance(xs, types.GeneratorType)
+        pls = [next(xs) for _ in range(2)]
+        self.assertEqual(2, len(pls))
+        self.assertEqual(
+            ['playlist'], list(set(map(lambda x: x['type'], pls)))
+        )
 
     def test_featured_playlists(self):
         pass

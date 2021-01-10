@@ -364,7 +364,8 @@ class SpotifyAPI(object):
         req = ApiRequest(
             'GET', 'artists/%s/top-tracks' % artist_id, params=kwargs
         )
-        return self._api_req_json(req)['tracks']
+        for track in self._api_req_json(req)['tracks']:
+            yield track
 
     def artist_related_artists(self, artist_id):
         req = ApiRequest('GET', 'artists/%s/related-artists' % artist_id)
