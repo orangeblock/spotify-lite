@@ -2,7 +2,13 @@ import os
 import time
 import types
 import spotify
+import logging
 import unittest
+
+class TestException(Exception):
+    def __init__(self, *args, **kwargs):
+        super(TestException, self).__init__(*args, **kwargs)
+        self.__suppress_context__ = True
 
 ###
 # Integration tests that run without any mocking, directly against
@@ -15,6 +21,7 @@ import unittest
 # failure might leave leftover data which would require manual intervention.
 # Refer to test output on how to correct it.
 class ApiTest(unittest.TestCase):
+    logger = logging.getLogger('spotify-lite-test')
     albums = [
         # Jon Hopkins - Immunity
         '1rxWlYQcH945S3jpIMYR35',
@@ -24,17 +31,27 @@ class ApiTest(unittest.TestCase):
         '2sBtwfqFvOdUkRxs741VBW'
     ]
     artists = [
-        # Jon Hopkins
         "7yxi31szvlbwvKq9dYOmFI",
-        # Cunninlynguists
         "7EA0bLf8dXCIUkwC3lnaJa",
-        # Deepchord presents: Echospace
         "6mw8tTkjJtQs6kT1V8G5fI",
-        # Eminem
         "7dGJo4pcD2V6oG8kP0tJRR"
+    ]
+    artist_names = [
+        'Jon Hopkins',
+        'Cunninlynguists',
+        'Deepchord presents: Echospace',
+        'Eminem'
     ]
     categories = [
         'party'
+    ]
+    episodes = [
+        # Joe Rogan #1592
+        '15p3DpjZeaXCwcXyGTytMj',
+        # Joe Rogan #1591
+        '6j9JygkIR2MsNLGZA9Suc3',
+        # Joe Rogan #1590
+        '6JDZgjywtlxWXO7V5NOjOg'
     ]
 
     @classmethod
@@ -147,31 +164,89 @@ class ApiTest(unittest.TestCase):
             ['playlist'], list(set(map(lambda x: x['type'], pls)))
         )
 
-    def test_featured_playlists(self):
-        pass
+    def _test_featured_playlists(self):
+        xs = self.api.featured_playlists()
+        self.assertIsInstance(xs, types.GeneratorType)
+        pls = [next(xs) for _ in range(5)]
+        self.assertEqual(5, len(pls))
+        self.assertEqual(
+            ['playlist'], list(set(map(lambda x: x['type'], pls)))
+        )
 
-    def test_new_releases(self):
-        pass
+    def _test_new_releases(self):
+        xs = self.api.new_releases()
+        self.assertIsInstance(xs, types.GeneratorType)
+        albs = [next(xs) for _ in range(5)]
+        self.assertEqual(5, len(albs))
+        self.assertEqual(
+            ['album'], list(set(map(lambda x: x['type'], albs)))
+        )
 
     def test_recommendations(self):
         pass
 
-    def test_episode(self):
-        pass
+    def _test_episode(self):
+        x = self.api.episode(self.episodes[0])
+        self.assertEqual(x['id'], self.episodes[0])
 
-    def test_episodes(self):
-        pass
+    def _test_episodes(self):
+        xs = self.api.episodes(self.episodes)
+        self.assertIsInstance(xs, types.GeneratorType)
+        eps = list(xs)
+        self.assertEqual(len(eps), 3)
+        self.assertSetEqual(
+            set(map(lambda x: x['id'], eps)),
+            set(self.episodes))
 
-    def test_is_following_artists(self):
-        pass
+    def _test_follow_artists_multi(self):
+        """Tests following, unfollowing and querying follow status
+        for artists.
+        """
+        # find if account follows artist initially
+        f_xs = [self.artists[0], self.artists[1]]
+        f_names = [self.artist_names[0], self.artist_names[1]]
+        init_status = list(self.api.is_following_artists(f_xs))
+        try:
+            # unfollow all currently followed artists
+            for i, status in enumerate(init_status):
+                if status:
+                    self.api.unfollow_artists([f_xs[i]])
+            # follow artists
+            self.api.follow_artists(f_xs)
+            # check follow status
+            sts = list(self.api.is_following_artists(f_xs))
+            self.assertListEqual(sts, [True, True])
+            # unfollow one
+            self.api.unfollow_artists([f_xs[0]])
+            # check follow status
+            sts = list(self.api.is_following_artists(f_xs))
+            self.assertListEqual(sts, [False, True])
+            # reset initial status
+            for i, i_st in enumerate(init_status):
+                if i_st != sts[i]:
+                    if i_st == True:
+                        self.api.follow_artists([f_xs[i]])
+                    else:
+                        self.api.unfollow_artists([f_xs[i]])
+            # ensure final state is correct
+            final_status = list(self.api.is_following_artists(f_xs))
+            self.assertListEqual(init_status, final_status)
+        except:
+            raise Exception(
+                "Potentially invalid account state - follow/unfollow " +
+                "status for artists: %s" % (
+                    ', '.join(
+                        [
+                            '%s (%s)' % (f_xs[i], f_names[i])
+                            for i in range(len(f_xs))
+                        ]
+                    )
+                ))
 
     def test_is_following_users(self):
         pass
 
     def test_is_playlist_followed(self):
-        pass
-
-    def test_follow_unfollow_artists(self):
         pass
 
     def test_follow_unfollow_users(self):

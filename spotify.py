@@ -1,6 +1,7 @@
 import os
 import sys
 import json
+import datetime
 from functools import wraps
 from base64 import b64encode
 try:
@@ -40,16 +41,20 @@ def kwargs_required(*xs):
         def _inner(self, *args, **kwargs):
             for x in xs:
                 if x not in kwargs or not kwargs[x]:
-                    raise Exception('missing required parameter: %s' % x)
+                    raise SpotifyException(
+                        'missing required parameter: %s' % x
+                    )
             return method(self, *args, **kwargs)
         return _inner
     return _wrapper
 
 def _expect_status(expected, resp):
     if resp.code != expected:
-        raise Exception("invalid status code - %d (expected %d) - %s" % (
-            resp.code, expected, resp.read()
-        ))
+        raise SpotifyException(
+            "invalid status code - %d (expected %d) - %s" % (
+                resp.code, expected, resp.read()
+            )
+        )
 
 class SpotifyException(Exception):
     def __init__(self, *args, **kwargs):
@@ -104,7 +109,7 @@ class BaseRequest(object):
             _params_actual = self.params
             parts = _url_actual.split("?")
             if len(parts) > 2 or len(parts) < 1:
-                raise Exception("malformed URL")
+                raise SpotifyException("malformed URL")
             if len(parts) == 2:
                 # append passed params to existing url query string
                 current_params = parse_qs(parts[-1])
@@ -151,9 +156,9 @@ class SpotifyAPI(object):
 
     def _refresh_access_token(self):
         if self.auth_user is None:
-            raise Exception('no user registered')
+            raise SpotifyException('no user registered')
         if self.auth_user.refresh_token is None:
-            raise Exception('missing refresh token')
+            raise SpotifyException('missing refresh token')
         try:
             resp = urlopen(BaseRequest(
                 'POST', TOKEN_URL,
@@ -175,7 +180,7 @@ class SpotifyAPI(object):
 
     def _api_req(self, req):
         if self.auth_user is None:
-            raise Exception('no user registered')
+            raise SpotifyException('no user registered')
         req.headers['Authorization'] = 'Bearer %s' % (
             self.auth_user.access_token
         )
@@ -227,7 +232,7 @@ class SpotifyAPI(object):
 
     def set_user(self, user):
         if not isinstance(user, SpotifyUser):
-            raise Exception('invalid user instance')
+            raise SpotifyException('invalid user instance')
         self.auth_user = user
 
     def set_user_from_code(self, code):
@@ -235,9 +240,9 @@ class SpotifyAPI(object):
         to generate access/refresh tokens for user access.
         """
         if self.client_id is None or self.client_secret is None:
-            raise Exception("client credentials not provided")
+            raise SpotifyException("client credentials not provided")
         if self.redirect_uri is None:
-            raise Exception("missing redirect URI")
+            raise SpotifyException("missing redirect URI")
         try:
             resp = urlopen(BaseRequest(
                 'POST', TOKEN_URL,
@@ -270,12 +275,12 @@ class SpotifyAPI(object):
         if scopes is None:
             scopes = []
         if self.redirect_uri is None:
-            raise Exception("missing redirect URI")
+            raise SpotifyException("missing redirect URI")
         if self.client_id is None:
-            raise Exception("missing client ID")
+            raise SpotifyException("missing client ID")
         for s in scopes:
             if s not in VALID_SCOPES:
-                raise Exception("invalid scope: %s" % s)
+                raise SpotifyException("invalid scope: %s" % s)
         return '%s?%s' % (
             OAUTH2_URL, urlencode({
                 "client_id": self.client_id,
@@ -390,7 +395,9 @@ class SpotifyAPI(object):
         return self._resp_paginator(req, oname='playlists')
 
     def featured_playlists(self, **kwargs):
-        # TODO: parse timestamp from py object
+        ts = 'timestamp'
+        if ts in kwargs and isinstance(kwargs['ts'], datetime.datetime):
+            kwargs['ts'] = kwargs['ts'].replace(microsecond=0).isoformat()
         req = ApiRequest('GET', 'browse/featured-playlists', params=kwargs)
         return self._resp_paginator(req, oname='playlists')
 
@@ -401,7 +408,7 @@ class SpotifyAPI(object):
     def recommendations(self, **kwargs):
         _seeds = ['seed_artists', 'seed_genres', 'seed_tracks']
         if not any([x in kwargs for x in _seeds]):
-            raise Exception('seed value(s) missing')
+            raise SpotifyException('seed value(s) missing')
         for _seed in _seeds:
             if _seed in kwargs:
                 # assume list
@@ -622,7 +629,9 @@ class SpotifyAPI(object):
                 lambda x: not isinstance(x, str),
                 track_params[100:]
             )):
-                raise Exception("cannot positionally delete after 100 items.")
+                raise SpotifyException(
+                    "cannot positionally delete after 100 items."
+                )
         last_resp = {}
         for chunk in chunked(track_params, 100):
             payload = []
