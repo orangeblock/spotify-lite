@@ -270,7 +270,7 @@ class SpotifyAPI(object):
         """Crafts a URL that you can use to request user access.
         After successful authorization Spotify will redirect to the
         provided redirect URI with the one-time auth code. You can pass
-        that to `register_code` to update this client's tokens.
+        that to `set_user_from_code` to update this client's tokens.
         """
         if scopes is None:
             scopes = []

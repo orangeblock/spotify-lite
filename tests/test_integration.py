@@ -2,13 +2,7 @@ import os
 import time
 import types
 import spotify
-import logging
 import unittest
-
-class TestException(Exception):
-    def __init__(self, *args, **kwargs):
-        super(TestException, self).__init__(*args, **kwargs)
-        self.__suppress_context__ = True
 
 ###
 # Integration tests that run without any mocking, directly against
@@ -21,7 +15,6 @@ class TestException(Exception):
 # failure might leave leftover data which would require manual intervention.
 # Refer to test output on how to correct it.
 class ApiTest(unittest.TestCase):
-    logger = logging.getLogger('spotify-lite-test')
     albums = [
         # Jon Hopkins - Immunity
         '1rxWlYQcH945S3jpIMYR35',
