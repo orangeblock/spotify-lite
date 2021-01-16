@@ -16,12 +16,14 @@ import unittest
 # Refer to test output on how to correct it.
 class ApiTest(unittest.TestCase):
     albums = [
-        # Jon Hopkins - Immunity
         '1rxWlYQcH945S3jpIMYR35',
-        # Cunninlynguists - Strange Journey Vol. 3
         '0bEZDwWaYrRZNfatVRsoTJ',
-        # Echospace - Liumin
         '2sBtwfqFvOdUkRxs741VBW'
+    ]
+    album_names = [
+        "Jon Hopkins - Immunity",
+        "Cunninlynguists - Strange Journey Vol. 3",
+        "Echospace - Liumin"
     ]
     artists = [
         "7yxi31szvlbwvKq9dYOmFI",
@@ -38,6 +40,14 @@ class ApiTest(unittest.TestCase):
     categories = [
         'party'
     ]
+    shows = [
+        '4rOoJ6Egrf8K2IrywzwOMk',
+        '3hOAVGZCDEO52OEGiG1ZFR'
+    ]
+    show_names = [
+        'The Joe Rogan Experience',
+        'The Nobody Zone'
+    ]
     episodes = [
         # Joe Rogan #1592
         '15p3DpjZeaXCwcXyGTytMj',
@@ -45,6 +55,24 @@ class ApiTest(unittest.TestCase):
         '6j9JygkIR2MsNLGZA9Suc3',
         # Joe Rogan #1590
         '6JDZgjywtlxWXO7V5NOjOg'
+    ]
+    users = [
+        'particledetector',
+        'glennpmcdonald'
+    ]
+    playlists = [
+        '0WDr7WCMndGfhoUwfm0ngS',
+    ]
+    playlist_names = [
+        'The Pulse of Downtempo'
+    ]
+    tracks = [
+        '4uLU6hMCjMI75M1A2tKUQC',
+        '5626KdflSKfeDK7RJQfSrE'
+    ]
+    track_names = [
+        'Rick Astley - Never Gonna Give You Up',
+        'Nils Frahm - Says'
     ]
 
     @classmethod
@@ -209,6 +237,11 @@ class ApiTest(unittest.TestCase):
             # check follow status
             sts = list(self.api.is_following_artists(f_xs))
             self.assertListEqual(sts, [True, True])
+            # check if artists_followed endpoint returns artists
+            _all_followed = list(self.api.artists_followed())
+            _all_followed_ids = list(map(lambda x: x['id'], _all_followed))
+            for _id in f_xs:
+                self.assertIn(_id, _all_followed_ids)
             # unfollow one
             self.api.unfollow_artists([f_xs[0]])
             # check follow status
@@ -236,17 +269,235 @@ class ApiTest(unittest.TestCase):
                     )
                 ))
 
-    def test_is_following_users(self):
-        pass
+    def _test_follow_users_multi(self):
+        """Tests following, unfollowing and querying follow status
+        for users.
+        """
+        # find if account follows user initially
+        f_xs = [self.users[0], self.users[1]]
+        init_status = list(self.api.is_following_users(f_xs))
+        try:
+            # unfollow all currently followed users
+            for i, status in enumerate(init_status):
+                if status:
+                    self.api.unfollow_users([f_xs[i]])
+            # follow users
+            self.api.follow_users(f_xs)
+            # check follow status
+            sts = list(self.api.is_following_users(f_xs))
+            self.assertListEqual(sts, [True, True])
+            # unfollow one
+            self.api.unfollow_users([f_xs[0]])
+            # check follow status
+            sts = list(self.api.is_following_users(f_xs))
+            self.assertListEqual(sts, [False, True])
+            # reset initial status
+            for i, i_st in enumerate(init_status):
+                if i_st != sts[i]:
+                    if i_st == True:
+                        self.api.follow_users([f_xs[i]])
+                    else:
+                        self.api.unfollow_users([f_xs[i]])
+            # ensure final state is correct
+            final_status = list(self.api.is_following_users(f_xs))
+            self.assertListEqual(init_status, final_status)
+        except:
+            raise Exception(
+                "Potentially invalid account state - follow/unfollow " +
+                "status for users: %s" % (
+                    ', '.join(
+                        [
+                            '%s' % f_xs[i]
+                            for i in range(len(f_xs))
+                        ]
+                    )
+                ))
 
-    def test_is_playlist_followed(self):
-        pass
+    def _test_follow_playlist_multi(self):
+        """Tests following, unfollowing and querying follow status
+        for playlists.
+        """
+        # find if account follows playlist initially
+        profile = self.api.profile()
+        init_status = list(self.api.is_playlist_followed(
+            self.playlists[0], [profile['id']]
+        ))[0]
+        try:
+            # unfollow playlist if followed
+            if init_status:
+                self.api.unfollow_playlist(self.playlists[0])
+            # follow playlist
+            self.api.follow_playlist(self.playlists[0])
+            # check follow status
+            st = list(self.api.is_playlist_followed(
+                self.playlists[0], [profile['id']]
+            ))[0]
+            self.assertEqual(st, True)
+            # unfollow
+            self.api.unfollow_playlist(self.playlists[0])
+            # check follow status
+            st = list(self.api.is_playlist_followed(
+                self.playlists[0], [profile['id']]
+            ))[0]
+            self.assertEqual(st, False)
+            # reset initial status
+            if init_status != st:
+                if init_status == True:
+                    self.api.follow_playlist(self.playlists[0])
+                else:
+                    self.api.unfollow_playlist(self.playlists[0])
+            # ensure final state is correct
+            final_status = list(self.api.is_playlist_followed(
+                self.playlists[0], [profile['id']]
+            ))[0]
+            self.assertEqual(init_status, final_status)
+        except:
+            raise Exception(
+                "Potentially invalid account state - follow/unfollow " +
+                "status for playlist: %s (%s)" % (
+                    self.playlists[0], self.playlist_names[0]
+                ))
 
-    def test_follow_unfollow_users(self):
-        pass
+    def _test_saved_albums_multi(self):
+        """Test saving, removing and listing saved albums"""
+        # find if albums are saved initially
+        xs = [self.albums[0], self.albums[1]]
+        xs_names = [self.album_names[0], self.album_names[1]]
+        init_status = list(self.api.are_albums_saved(xs))
+        try:
+            # delete all currently saved albums
+            for i, status in enumerate(init_status):
+                if status:
+                    self.api.saved_albums_remove([xs[i]])
+            # save albums
+            self.api.saved_albums_add(xs)
+            # check save status
+            sts = list(self.api.are_albums_saved(xs))
+            self.assertListEqual(sts, [True, True])
+            # check general endpoint now that at least 2 are saved
+            album_gen = self.api.saved_albums()
+            for i in range(2):
+                album = next(album_gen)['album']
+                self.assertEqual(album['type'], 'album')
+            # remove one
+            self.api.saved_albums_remove([xs[0]])
+            # check save status
+            sts = list(self.api.are_albums_saved(xs))
+            self.assertListEqual(sts, [False, True])
+            # reset initial status
+            for i, i_st in enumerate(init_status):
+                if i_st != sts[i]:
+                    if i_st == True:
+                        self.api.saved_albums_add([xs[i]])
+                    else:
+                        self.api.saved_albums_remove([xs[i]])
+            final_status = list(self.api.are_albums_saved(xs))
+            self.assertListEqual(init_status, final_status)
+        except:
+            raise Exception(
+                "Potentially invalid account state - saved status " +
+                "for albums: %s" % (
+                    ', '.join(
+                        [
+                            '%s (%s)' % (xs[i], xs_names[i])
+                            for i in range(len(xs))
+                        ]
+                    )
+                )
+            )
 
-    def test_follow_unfollow_playlist(self):
-        pass
+    def _test_saved_shows_multi(self):
+        """Test saving, removing and listing saved shows"""
+        # find if shows are saved initially
+        xs = [self.shows[0], self.shows[1]]
+        xs_names = [self.show_names[0], self.show_names[1]]
+        init_status = list(self.api.are_shows_saved(xs))
+        try:
+            # delete all currently saved shows
+            for i, status in enumerate(init_status):
+                if status:
+                    self.api.saved_shows_remove([xs[i]])
+            # save shows
+            self.api.saved_shows_add(xs)
+            # check save status
+            sts = list(self.api.are_shows_saved(xs))
+            self.assertListEqual(sts, [True, True])
+            # check general endpoint now that at least 2 are saved
+            show_gen = self.api.saved_shows()
+            for i in range(2):
+                show = next(show_gen)['show']
+                self.assertEqual(show['type'], 'show')
+            # remove one
+            self.api.saved_shows_remove([xs[0]])
+            # check save status
+            sts = list(self.api.are_shows_saved(xs))
+            self.assertListEqual(sts, [False, True])
+            # reset initial status
+            for i, i_st in enumerate(init_status):
+                if i_st != sts[i]:
+                    if i_st == True:
+                        self.api.saved_shows_add([xs[i]])
+                    else:
+                        self.api.saved_shows_remove([xs[i]])
+            final_status = list(self.api.are_shows_saved(xs))
+            self.assertListEqual(init_status, final_status)
+        except:
+            raise Exception(
+                "Potentially invalid account state - saved status " +
+                "for shows: %s" % (
+                    ', '.join(
+                        [
+                            '%s (%s)' % (xs[i], xs_names[i])
+                            for i in range(len(xs))
+                        ]
+                    )
+                )
+            )
 
-    def test_artists_followed(self):
-        pass
+    def _test_saved_tracks_multi(self):
+        """Test saving, removing and listing saved tracks"""
+        # find if tracks are saved initially
+        xs = [self.tracks[0], self.tracks[1]]
+        xs_names = [self.track_names[0], self.track_names[1]]
+        init_status = list(self.api.are_tracks_saved(xs))
+        try:
+            # delete all currently saved tracks
+            for i, status in enumerate(init_status):
+                if status:
+                    self.api.saved_tracks_remove([xs[i]])
+            # save tracks
+            self.api.saved_tracks_add(xs)
+            # check save status
+            sts = list(self.api.are_tracks_saved(xs))
+            self.assertListEqual(sts, [True, True])
+            # check general endpoint now that at least 2 are saved
+            track_gen = self.api.saved_tracks()
+            for i in range(2):
+                track = next(track_gen)['track']
+                self.assertEqual(track['type'], 'track')
+            # remove one
+            self.api.saved_tracks_remove([xs[0]])
+            # check save status
+            sts = list(self.api.are_tracks_saved(xs))
+            self.assertListEqual(sts, [False, True])
+            # reset initial status
+            for i, i_st in enumerate(init_status):
+                if i_st != sts[i]:
+                    if i_st == True:
+                        self.api.saved_tracks_add([xs[i]])
+                    else:
+                        self.api.saved_tracks_remove([xs[i]])
+            final_status = list(self.api.are_tracks_saved(xs))
+            self.assertListEqual(init_status, final_status)
+        except:
+            raise Exception(
+                "Potentially invalid account state - saved status " +
+                "for tracks: %s" % (
+                    ', '.join(
+                        [
+                            '%s (%s)' % (xs[i], xs_names[i])
+                            for i in range(len(xs))
+                        ]
+                    )
+                )
+            )
