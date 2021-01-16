@@ -51,7 +51,7 @@ def kwargs_required(*xs):
 def _expect_status(expected, resp):
     if resp.code != expected:
         raise SpotifyException(
-            "invalid status code - %d (expected %d) - %s" % (
+            "invalid status code - %d (expected one of: %s) - %s" % (
                 resp.code, expected, resp.read()
             )
         )
@@ -507,13 +507,25 @@ class SpotifyAPI(object):
         req = ApiRequest('GET', 'me/albums', params=kwargs)
         return self._resp_paginator(req)
 
+    def saved_album_objs(self, **kwargs):
+        for item in self.saved_albums(**kwargs):
+            yield item['album']
+
     def saved_shows(self):
         req = ApiRequest('GET', 'me/shows')
         return self._resp_paginator(req)
 
+    def saved_show_objs(self):
+        for item in self.saved_shows():
+            yield item['show']
+
     def saved_tracks(self, **kwargs):
         req = ApiRequest('GET', 'me/tracks', params=kwargs)
         return self._resp_paginator(req)
+
+    def saved_track_objs(self, **kwargs):
+        for item in self.saved_tracks(**kwargs):
+            yield item['track']
 
     def saved_albums_remove(self, album_ids):
         req = ApiRequest('DELETE', 'me/albums')
@@ -536,7 +548,7 @@ class SpotifyAPI(object):
     def saved_albums_add(self, album_ids):
         req = ApiRequest('PUT', 'me/albums')
         for resp in self._req_paginator(req, album_ids, 'ids', limit=50):
-            _expect_status(201, resp)
+            _expect_status(200, resp)
         return True
 
     def saved_shows_add(self, show_ids):
