@@ -1,8 +1,11 @@
 # spotify-lite
 A lightweight, single-file, zero-dependency Spotify wrapper, that can be dropped into any Python 2.x or 3.x project with minimal hassle.
 
-## Quick Start
-Copy `spotify.py` anywhere into your project. 
+## Quickstart
+```bash
+pip install spotify-lite
+```
+or simply drop `spotify/spotify.py` anywhere into your project. 
 
 Get an instance of the API wrapper:
 ```python

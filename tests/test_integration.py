@@ -81,7 +81,6 @@ class ApiTest(unittest.TestCase):
         client_id = os.getenv('SPOTIFY_CLIENT_ID')
         client_secret = os.getenv('SPOTIFY_CLIENT_SECRET')
         refresh_token = os.getenv('SPOTIFY_REFRESH_TOKEN')
-
         user = spotify.SpotifyUser(refresh_token=refresh_token)
         self.api = spotify.SpotifyAPI(client_id, client_secret, user=user)
 
