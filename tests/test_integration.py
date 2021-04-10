@@ -85,18 +85,18 @@ class ApiTest(unittest.TestCase):
         user = spotify.SpotifyUser(refresh_token=refresh_token)
         self.api = spotify.SpotifyAPI(client_id, client_secret, user=user)
 
-    def _test_album(self):
+    def test_album(self):
         x = self.api.album(self.albums[0])
         self.assertEqual(x['id'], self.albums[0])
 
-    def _test_albums(self):
+    def test_albums(self):
         xs = self.api.albums(self.albums)
         self.assertIsInstance(xs, types.GeneratorType)
         ids = list(map(lambda x: x['id'], list(xs)))
         self.assertEqual(len(ids), len(self.albums))
         self.assertSetEqual(set(ids), set(self.albums))
 
-    def _test_album_tracks(self):
+    def test_album_tracks(self):
         xs = self.api.album_tracks(self.albums[0])
         self.assertIsInstance(xs, types.GeneratorType)
         tracks = list(xs)
@@ -104,18 +104,18 @@ class ApiTest(unittest.TestCase):
         self.assertNotEqual(0, len(artists))
         self.assertSetEqual(set([self.artists[0]]), set(artists))
 
-    def _test_artist(self):
+    def test_artist(self):
         x = self.api.artist(self.artists[0])
         self.assertEqual(x['id'], self.artists[0])
 
-    def _test_artists(self):
+    def test_artists(self):
         xs = self.api.artists(self.artists)
         self.assertIsInstance(xs, types.GeneratorType)
         ids = list(map(lambda x: x['id'], list(xs)))
         self.assertEqual(len(ids), len(self.artists))
         self.assertSetEqual(set(ids), set(self.artists))
 
-    def _test_artist_albums(self):
+    def test_artist_albums(self):
         # should contain all release types
         xs = self.api.artist_albums(self.artists[1])
         self.assertIsInstance(xs, types.GeneratorType)
@@ -145,7 +145,7 @@ class ApiTest(unittest.TestCase):
         self.assertSetEqual(set(['single', 'album']), set(release_types))
         self.assertSetEqual(set(['single', 'album']), set(release_groups))
 
-    def _test_artist_top_tracks(self):
+    def test_artist_top_tracks(self):
         xs = self.api.artist_top_tracks(self.artists[0])
         self.assertIsInstance(xs, types.GeneratorType)
         # ensure all tracks have og artist in artist list
@@ -156,18 +156,18 @@ class ApiTest(unittest.TestCase):
                 self.artists[0], list(map(lambda x: x['id'], l))
             )
 
-    def _test_artist_related_artists(self):
+    def test_artist_related_artists(self):
         xs = self.api.artist_related_artists(self.artists[0])
         self.assertIsInstance(xs, types.GeneratorType)
         obj_types = list(map(lambda x: x['type'], list(xs)))
         self.assertGreater(len(obj_types), 0)
         self.assertListEqual(['artist'], list(set(obj_types)))
 
-    def _test_category(self):
+    def test_category(self):
         x = self.api.category(self.categories[0])
         self.assertEqual(x['id'], self.categories[0])
 
-    def _test_categories(self):
+    def test_categories(self):
         xs = self.api.categories()
         self.assertIsInstance(xs, types.GeneratorType)
         # no way to tell if objects are categories without fetching
@@ -176,7 +176,7 @@ class ApiTest(unittest.TestCase):
         cats = [next(xs) for _ in range(10)]
         self.assertEqual(10, len(cats))
 
-    def _test_category_playlists(self):
+    def test_category_playlists(self):
         xs = self.api.category_playlists(self.categories[0])
         self.assertIsInstance(xs, types.GeneratorType)
         pls = [next(xs) for _ in range(2)]
@@ -185,7 +185,7 @@ class ApiTest(unittest.TestCase):
             ['playlist'], list(set(map(lambda x: x['type'], pls)))
         )
 
-    def _test_featured_playlists(self):
+    def test_featured_playlists(self):
         xs = self.api.featured_playlists()
         self.assertIsInstance(xs, types.GeneratorType)
         pls = [next(xs) for _ in range(5)]
@@ -194,7 +194,7 @@ class ApiTest(unittest.TestCase):
             ['playlist'], list(set(map(lambda x: x['type'], pls)))
         )
 
-    def _test_new_releases(self):
+    def test_new_releases(self):
         xs = self.api.new_releases()
         self.assertIsInstance(xs, types.GeneratorType)
         albs = [next(xs) for _ in range(5)]
@@ -206,11 +206,11 @@ class ApiTest(unittest.TestCase):
     def test_recommendations(self):
         pass
 
-    def _test_episode(self):
+    def test_episode(self):
         x = self.api.episode(self.episodes[0])
         self.assertEqual(x['id'], self.episodes[0])
 
-    def _test_episodes(self):
+    def test_episodes(self):
         xs = self.api.episodes(self.episodes)
         self.assertIsInstance(xs, types.GeneratorType)
         eps = list(xs)
@@ -219,7 +219,7 @@ class ApiTest(unittest.TestCase):
             set(map(lambda x: x['id'], eps)),
             set(self.episodes))
 
-    def _test_follow_artists_multi(self):
+    def test_follow_artists_multi(self):
         """Tests following, unfollowing and querying follow status
         for artists.
         """
@@ -269,7 +269,7 @@ class ApiTest(unittest.TestCase):
                     )
                 ))
 
-    def _test_follow_users_multi(self):
+    def test_follow_users_multi(self):
         """Tests following, unfollowing and querying follow status
         for users.
         """
@@ -313,7 +313,7 @@ class ApiTest(unittest.TestCase):
                     )
                 ))
 
-    def _test_follow_playlist_multi(self):
+    def test_follow_playlist_multi(self):
         """Tests following, unfollowing and querying follow status
         for playlists.
         """
@@ -358,7 +358,7 @@ class ApiTest(unittest.TestCase):
                     self.playlists[0], self.playlist_names[0]
                 ))
 
-    def _test_saved_albums_multi(self):
+    def test_saved_albums_multi(self):
         """Test saving, removing and listing saved albums"""
         # find if albums are saved initially
         xs = [self.albums[0], self.albums[1]]
@@ -406,7 +406,7 @@ class ApiTest(unittest.TestCase):
                 )
             )
 
-    def _test_saved_shows_multi(self):
+    def test_saved_shows_multi(self):
         """Test saving, removing and listing saved shows"""
         # find if shows are saved initially
         xs = [self.shows[0], self.shows[1]]
@@ -454,7 +454,7 @@ class ApiTest(unittest.TestCase):
                 )
             )
 
-    def _test_saved_tracks_multi(self):
+    def test_saved_tracks_multi(self):
         """Test saving, removing and listing saved tracks"""
         # find if tracks are saved initially
         xs = [self.tracks[0], self.tracks[1]]
