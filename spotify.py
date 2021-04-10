@@ -40,7 +40,7 @@ def kwargs_required(*xs):
         @wraps(method)
         def _inner(self, *args, **kwargs):
             for x in xs:
-                if x not in kwargs or not kwargs[x]:
+                if x not in kwargs or kwargs[x] is None:
                     raise SpotifyException(
                         'missing required parameter: %s' % x
                     )
@@ -51,7 +51,7 @@ def kwargs_required(*xs):
 def _expect_status(expected, resp):
     if resp.code != expected:
         raise SpotifyException(
-            "invalid status code - %d (expected one of: %s) - %s" % (
+            "invalid status code - %d (expected: %s) - %s" % (
                 resp.code, expected, resp.read()
             )
         )
@@ -144,8 +144,7 @@ class SpotifyAPI(object):
         self, client_id=None, client_secret=None, redirect_uri=None,
         user=None
     ):
-        self.client_id = client_id \
-            or os.getenv("SPOTIFY_CLIENT_ID")
+        self.client_id = client_id or os.getenv("SPOTIFY_CLIENT_ID")
         self.client_secret = client_secret \
             or os.getenv("SPOTIFY_CLIENT_SECRET")
         self.redirect_uri = redirect_uri \
@@ -153,6 +152,10 @@ class SpotifyAPI(object):
         self.auth_user = None
         if user is not None:
             self.set_user(user)
+        elif os.getenv("SPOTIFY_REFRESH_TOKEN"):
+            self.set_user(
+                SpotifyUser(refresh_token=os.getenv("SPOTIFY_REFRESH_TOKEN"))
+            )
 
     def _refresh_access_token(self):
         if self.auth_user is None:
@@ -219,7 +222,7 @@ class SpotifyAPI(object):
             ApiRequest(
                 method, url, params=params, data=data, json=json,
                 headers=headers
-            ).prepare()
+            )
         )
     def get(self, url, **kwargs):
         return self.req('GET', url, **kwargs)
@@ -348,7 +351,7 @@ class SpotifyAPI(object):
         req = ApiRequest('GET', 'albums/%s/tracks' % album_id, params=kwargs)
         return self._resp_paginator(req)
 
-    #### Artists
+    ################################# Artists #################################
     def artist(self, artist_id):
         return self._api_req_json(ApiRequest('GET', 'artists/%s' % artist_id))
 
