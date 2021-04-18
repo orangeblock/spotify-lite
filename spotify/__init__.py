@@ -1,1 +1,1 @@
-from .spotify import SpotifyAPI, SpotifyUser
+from .spotify import SpotifyAPI, SpotifyUser, SpotifyException

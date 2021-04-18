@@ -743,3 +743,82 @@ class SpotifyAPI(object):
         else:
             req = ApiRequest('GET', 'users/%s' % user_id)
         return self._api_req_json(req)
+
+    ############################ Player #######################################
+    def player(self, **kwargs):
+        _fld = 'additional_types'
+        if _fld in kwargs:
+            kwargs[_fld] = ','.join(kwargs[_fld])
+        req = ApiRequest('GET', 'me/player', params=kwargs)
+        return self._api_req_json(req)
+
+    def player_transfer(self, device_id, **kwargs):
+        kwargs['device_ids'] = [device_id]
+        req = ApiRequest('PUT', 'me/player', json=kwargs)
+        self._api_req(req)
+
+    def player_devices(self):
+        req = ApiRequest('GET', 'me/player/devices')
+        for item in self._api_req_json(req)['devices']:
+            yield item
+
+    def player_current_track(self, **kwargs):
+        # TODO: Generalize field conversions into a decorator
+        _fld = 'additional_types'
+        if _fld in kwargs:
+            kwargs[_fld] = ','.join(kwargs[_fld])
+        req = ApiRequest('GET', 'me/player/currently-playing', params=kwargs)
+        return self._api_req_json(req)
+
+    def player_play(self, **kwargs):
+        # TODO: send device_id as query param
+        req = ApiRequest('PUT', 'me/player/play', json=kwargs)
+        self._api_req(req)
+
+    def player_pause(self, **kwargs):
+        req = ApiRequest('PUT', 'me/player/pause', params=kwargs)
+        self._api_req(req)
+
+    def player_next(self, **kwargs):
+        req = ApiRequest('POST', 'me/player/next', params=kwargs)
+        self._api_req(req)
+
+    def player_previous(self, **kwargs):
+        req = ApiRequest('POST', 'me/player/previous', params=kwargs)
+        self._api_req(req)
+
+    @kwargs_required('position_ms')
+    def player_seek(self, **kwargs):
+        req = ApiRequest('PUT', 'me/player/seek', params=kwargs)
+        self._api_req(req)
+
+    @kwargs_required('state')
+    def player_repeat(self, **kwargs):
+        req = ApiRequest('PUT', 'me/player/repeat', params=kwargs)
+        self._api_req(req)
+
+    @kwargs_required('volume_percent')
+    def player_volume(self, **kwargs):
+        req = ApiRequest('PUT', 'me/player/volume', params=kwargs)
+        self._api_req(req)
+
+    @kwargs_required('state')
+    def player_shuffle(self, **kwargs):
+        req = ApiRequest('PUT', 'me/player/shuffle', params=kwargs)
+        self._api_req(req)
+
+    def player_recent_tracks(self, **kwargs):
+        req = ApiRequest('GET', 'me/player/recently-played')
+        return self._resp_paginator(req, limit=50)
+
+    def player_recent_track_objs(self, **kwargs):
+        for item in self.player_recent_tracks(**kwargs):
+            yield item['track']
+
+    def player_queue_add(self, uri, **kwargs):
+        _prefix = 'spotify:track:'
+        if not uri.startswith(_prefix):
+            uri = '%s%s' % (_prefix, uri)
+        kwargs['uri'] = uri
+        req = ApiRequest('POST', 'me/player/queue', params=kwargs)
+        self._api_req(req)
