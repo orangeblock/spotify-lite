@@ -48,6 +48,17 @@ def kwargs_required(*xs):
         return _inner
     return _wrapper
 
+def csv_kwargs(*xs):
+    def _wrapper(method):
+        @wraps(method)
+        def _inner(self, *args, **kwargs):
+            for x in xs:
+                if x in kwargs and isinstance(kwargs[x], list):
+                    kwargs[x] = ','.join(kwargs[x])
+            return method(self, *args, **kwargs)
+        return _inner
+    return _wrapper
+
 def _expect_status(expected, resp):
     if resp.code != expected:
         raise SpotifyException(
@@ -359,10 +370,8 @@ class SpotifyAPI(object):
         req = ApiRequest('GET', 'artists')
         return self._req_paginator(req, artist_ids, 'ids', 'artists', limit=50)
 
+    @csv_kwargs('include_groups')
     def artist_albums(self, artist_id, **kwargs):
-        _incl_grp = 'include_groups'
-        if _incl_grp in kwargs:
-            kwargs[_incl_grp] = ','.join(kwargs[_incl_grp])
         req = ApiRequest('GET', 'artists/%s/albums' % artist_id, params=kwargs)
         return self._resp_paginator(req)
 
@@ -408,14 +417,11 @@ class SpotifyAPI(object):
         req = ApiRequest('GET', 'browse/new-releases', params=kwargs)
         return self._resp_paginator(req, oname='albums')
 
+    @csv_kwargs('seed_artists', 'seed_genres', 'seed_tracks')
     def recommendations(self, **kwargs):
         _seeds = ['seed_artists', 'seed_genres', 'seed_tracks']
         if not any([x in kwargs for x in _seeds]):
             raise SpotifyException('seed value(s) missing')
-        for _seed in _seeds:
-            if _seed in kwargs:
-                # assume list
-                kwargs[_seed] = ','.join(kwargs[_seed])
         req = ApiRequest('GET', 'recommendations', params=kwargs)
         return self._api_req_json(req)
 
@@ -615,17 +621,13 @@ class SpotifyAPI(object):
         for item in self._api_req_json(req):
             yield item
 
+    @csv_kwargs('fields')
     def playlist(self, playlist_id, **kwargs):
-        _flds = 'fields'
-        if _flds in kwargs:
-            kwargs[_flds] = ','.join(kwargs[_flds])
         req = ApiRequest('GET', 'playlists/%s' % playlist_id, params=kwargs)
         return self._api_req_json(req)
 
+    @csv_kwargs('fields')
     def playlist_tracks(self, playlist_id, **kwargs):
-        _flds = 'fields'
-        if _flds in kwargs:
-            kwargs[_flds] = ','.join(kwargs[_flds])
         req = ApiRequest(
             'GET', 'playlists/%s/tracks' % playlist_id, params=kwargs
         )
@@ -745,67 +747,56 @@ class SpotifyAPI(object):
         return self._api_req_json(req)
 
     ############################ Player #######################################
+    @csv_kwargs('additional_types')
     def player(self, **kwargs):
-        _fld = 'additional_types'
-        if _fld in kwargs:
-            kwargs[_fld] = ','.join(kwargs[_fld])
         req = ApiRequest('GET', 'me/player', params=kwargs)
         return self._api_req_json(req)
 
     def player_transfer(self, device_id, **kwargs):
         kwargs['device_ids'] = [device_id]
-        req = ApiRequest('PUT', 'me/player', json=kwargs)
-        self._api_req(req)
+        self._api_req(ApiRequest('PUT', 'me/player', json=kwargs))
 
     def player_devices(self):
         req = ApiRequest('GET', 'me/player/devices')
         for item in self._api_req_json(req)['devices']:
             yield item
 
+    @csv_kwargs('additional_types')
     def player_current_track(self, **kwargs):
-        # TODO: Generalize field conversions into a decorator
-        _fld = 'additional_types'
-        if _fld in kwargs:
-            kwargs[_fld] = ','.join(kwargs[_fld])
         req = ApiRequest('GET', 'me/player/currently-playing', params=kwargs)
         return self._api_req_json(req)
 
     def player_play(self, **kwargs):
-        # TODO: send device_id as query param
-        req = ApiRequest('PUT', 'me/player/play', json=kwargs)
-        self._api_req(req)
+        _fld = 'device_id'
+        params = {}
+        if _fld in kwargs:
+            params[_fld] = kwargs[_fld]
+        self._api_req(ApiRequest('PUT', 'me/player/play', params=params, json=kwargs))
 
     def player_pause(self, **kwargs):
-        req = ApiRequest('PUT', 'me/player/pause', params=kwargs)
-        self._api_req(req)
+        self._api_req(ApiRequest('PUT', 'me/player/pause', params=kwargs))
 
     def player_next(self, **kwargs):
-        req = ApiRequest('POST', 'me/player/next', params=kwargs)
-        self._api_req(req)
+        self._api_req(ApiRequest('POST', 'me/player/next', params=kwargs))
 
     def player_previous(self, **kwargs):
-        req = ApiRequest('POST', 'me/player/previous', params=kwargs)
-        self._api_req(req)
+        self._api_req(ApiRequest('POST', 'me/player/previous', params=kwargs))
 
     @kwargs_required('position_ms')
     def player_seek(self, **kwargs):
-        req = ApiRequest('PUT', 'me/player/seek', params=kwargs)
-        self._api_req(req)
+        self._api_req(ApiRequest('PUT', 'me/player/seek', params=kwargs))
 
     @kwargs_required('state')
     def player_repeat(self, **kwargs):
-        req = ApiRequest('PUT', 'me/player/repeat', params=kwargs)
-        self._api_req(req)
+        self._api_req(ApiRequest('PUT', 'me/player/repeat', params=kwargs))
 
     @kwargs_required('volume_percent')
     def player_volume(self, **kwargs):
-        req = ApiRequest('PUT', 'me/player/volume', params=kwargs)
-        self._api_req(req)
+        self._api_req(ApiRequest('PUT', 'me/player/volume', params=kwargs))
 
     @kwargs_required('state')
     def player_shuffle(self, **kwargs):
-        req = ApiRequest('PUT', 'me/player/shuffle', params=kwargs)
-        self._api_req(req)
+        self._api_req(ApiRequest('PUT', 'me/player/shuffle', params=kwargs))
 
     def player_recent_tracks(self, **kwargs):
         req = ApiRequest('GET', 'me/player/recently-played')
