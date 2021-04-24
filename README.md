@@ -139,7 +139,7 @@ api.playlist_tracks_add("my-playlist-id", track_uris)
 ```
 
 ## Mapping
-Below is a list of supported endpoints and their corresponding method names. Argument positioning and naming as explained previously:
+Below is a list of supported endpoints and their corresponding method names, accessed via the object returned by the call to `SpotifyAPI`. Argument positioning and naming as explained previously:
 ### Albums 
 [Get Multiple Albums](https://developer.spotify.com/documentation/web-api/reference#endpoint-get-multiple-albums) -> `albums`
 
@@ -268,11 +268,39 @@ Below is a list of supported endpoints and their corresponding method names. Arg
 
 [Get a User's Profile](https://developer.spotify.com/documentation/web-api/reference#endpoint-get-users-profile) -> `profile` (w/ user ID as param)
 
+### Player
+[Get Information About The User's Current Playback](https://developer.spotify.com/documentation/web-api/reference#endpoint-get-information-about-the-users-current-playback) -> `player`
+
+[Transfer a User's Playback](https://developer.spotify.com/documentation/web-api/reference#endpoint-transfer-a-users-playback) -> `player_transfer`
+
+[Get a User's Available Devices](https://developer.spotify.com/documentation/web-api/reference#endpoint-get-a-users-available-devices) -> `player_devices`
+
+[Get the User's Currently Playing Track](https://developer.spotify.com/documentation/web-api/reference#endpoint-get-the-users-currently-playing-track) -> `player_current_track`
+
+[Start/Resume a User's Playback](https://developer.spotify.com/documentation/web-api/reference#endpoint-start-a-users-playback) -> `player_play`
+
+[Pause a User's Playback](https://developer.spotify.com/documentation/web-api/reference#endpoint-pause-a-users-playback) -> `player_pause`
+
+[Skip User's Playback To Next Track](https://developer.spotify.com/documentation/web-api/reference#endpoint-skip-users-playback-to-next-track) -> `player_next`
+
+[Skip User's Playback To Previous Track](https://developer.spotify.com/documentation/web-api/reference#endpoint-skip-users-playback-to-previous-track) -> `player_previous`
+
+[Seek To Position In Currently Playing Track](https://developer.spotify.com/documentation/web-api/reference#endpoint-seek-to-position-in-currently-playing-track) -> `player_seek`
+
+[Set Repeat Mode On User's Playback](https://developer.spotify.com/documentation/web-api/reference#endpoint-set-repeat-mode-on-users-playback) -> `player_repeat`
+
+[Set Volume For User's Playback](https://developer.spotify.com/documentation/web-api/reference#endpoint-set-volume-for-users-playback) -> `player_volume`
+
+[Toggle Shuffle For Userâs Playback](https://developer.spotify.com/documentation/web-api/reference#endpoint-toggle-shuffle-for-users-playback) -> `player_shuffle`
+
+[Get Current User's Recently Played Tracks](https://developer.spotify.com/documentation/web-api/reference#endpoint-get-recently-played) -> `player_recent_tracks`
+
+[Add an item to queue](https://developer.spotify.com/documentation/web-api/reference#endpoint-add-to-queue) -> `player_queue_add`
 
 ## Convenience methods
 I've added a few additional convenience methods:
 
-`playlist_track_objs`, `saved_album_objs`, `saved_show_objs`, `saved_track_objs`
+`playlist_track_objs`, `saved_album_objs`, `saved_show_objs`, `saved_track_objs`, `player_recent_track_objs`
 
 These break the contract that you always get the exact JSON response from Spotify and return the inner objects, omitting any additional metadata in the outer object. As an example, these do the same thing:
 ```python

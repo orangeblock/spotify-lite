@@ -8,7 +8,7 @@ setup(
     url='https://github.com/orangeblock/spotify-lite',
     author="orangeblock",
     author_email="noreply@void.dev",
-    version='1.0.1',
+    version='1.1.0',
     description='Lightweight, single-file, zero-dependency Spotify wrapper for Python 2.7+ and Python 3.x.',
     long_description=readme_str,
     long_description_content_type='text/markdown',
